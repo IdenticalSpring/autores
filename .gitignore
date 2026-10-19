@@ -77,3 +77,22 @@ PROMPT_CASE_2.md
 taskfe.md
 docs/
 tasks/
+
+# ==============================================================================
+# AI Assistants, Agent Rules & Task Tracking
+# ==============================================================================
+AGENTS_starter.md
+ROLE.md
+rules/
+roles/
+CLAUDE.md
+GEMINI.md
+COPILOT.md
+CURSOR.md
+.agents/
+.gemini/
+.cursor/
+.tasks/
+TASK_PLAN.md
+task_*.md
+*.task.md
