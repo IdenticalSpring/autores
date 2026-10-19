@@ -56,8 +56,8 @@ Chạy các lệnh sau trên terminal của VPS (với quyền `root` hoặc `su
 # 1. Cập nhật hệ thống
 sudo apt update && sudo apt upgrade -y
 
-# 2. Cài đặt các công cụ cần thiết
-sudo apt install -y curl wget git jq net-tools python3 python3-pip python3-venv
+# 2. Cài đặt các công cụ cơ bản (KHÔNG cần cài Python hay pip/venv trên host)
+sudo apt install -y curl wget git jq net-tools
 
 # 3. Cài đặt Docker Engine & Docker Compose Plugin chuẩn từ Docker official
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -74,42 +74,54 @@ docker compose version
 
 ---
 
-## ⚡ 3. TRIỂN KHAI TỰ ĐỘNG 1-CLICK VỚI DEPLOY.SH (KHUYẾN NGHỊ)
+## ⚡ 4. TRIỂN KHAI TỰ ĐỘNG VỚI DEPLOY.SH (INTERACTIVE MENU & DOCKER-FIRST)
 
-Hệ thống đã có sẵn script [`deploy.sh`](file:///home/hiubao/Projects/03_Work/Company/autoresearching/deploy.sh) tự động làm toàn bộ các bước kiểm tra cấu hình, cài đặt Docker (nếu thiếu), khởi động hạ tầng, build app và health check:
+Hệ thống cung cấp bộ công cụ [`deploy.sh`](file:///home/hiubao/Projects/03_Work/Company/autoresearching/deploy.sh) được chuẩn hóa **100% Docker-first**. Toàn bộ tác vụ từ khởi động hạ tầng, build image, nạp dữ liệu khởi tạo (seed Redis, MinIO, Kafka) đến chạy kiểm thử đều chạy bên trong Docker container mà **không cần bất kỳ môi trường ảo Python (venv) nào trên máy chủ VPS**.
+
+### 🌟 4.1. Giao diện Menu Tương tác (Interactive CLI Menu)
+
+Chỉ cần gõ lệnh không kèm tham số:
 
 ```bash
-# 1. Cấp quyền thực thi
 chmod +x deploy.sh
-
-# 2. Chạy deploy toàn bộ (Hạ tầng + 4 AI Services)
 ./deploy.sh
 ```
 
-### Các Flags hữu ích:
-```bash
-./deploy.sh --skip-build    # Dùng lại image Docker đã build trước đó (tiết kiệm thời gian)
-./deploy.sh --infra-only    # Chỉ khởi động cụm hạ tầng (Kafka, Redis, Mongo, Qdrant, MinIO, LiteLLM)
-./deploy.sh --app-only      # Chỉ khởi động 4 AI Service (yêu cầu hạ tầng đã chạy sẵn)
+Menu điều khiển trực quan sẽ hiển thị trên terminal:
+
+```text
+╔════════════════════════════════════════════════════════════╗
+║    AUTORERESEARCHING — QUẢN TRỊ & TRIỂN KHAI DOCKER-FIRST    ║
+╚════════════════════════════════════════════════════════════╝
+  [1]  🚀 Full Deploy (Infra + Build Image + Seed + 4 AI Services)
+  [2]  🏗️  Khởi động Hạ tầng (Kafka, Redis, Mongo, Qdrant, MinIO, LiteLLM)
+  [3]  🐳 Build Docker Image (autoresearching-ai:latest)
+  [4]  🌱 Seed Dữ liệu Hạ tầng qua Docker (AI_KEY, MinIO, Topics)
+  [5]  🤖 Khởi động 4 AI Services (Doc, Write, Chat, Enhance)
+  [6]  📊 Kiểm tra Trạng thái & Cổng dịch vụ (Health Check)
+  [7]  📜 Xem Logs thời gian thực (Interactive Log Viewer)
+  [8]  🔄 Khởi động lại Dịch vụ (Restart Menu)
+  [9]  🧪 Chạy Test tích hợp Kafka qua Docker (Không cần venv)
+  [10] 🛑 Dừng Hệ thống (Stop / Down)
+  [0]  🚪 Thoát
+────────────────────────────────────────────────────────────
+👉 Chọn tác vụ [0-10]:
 ```
 
-### 🛑 Các Lệnh Tạm Dừng & Quản Lý Container Nhanh trên VPS:
-```bash
-# 1. TẠM DỪNG riêng 4 AI Service để sửa code/cấu hình (Hạ tầng vẫn giữ nguyên)
-docker compose -f docker-compose-app.yaml stop
+### ⚡ 4.2. Chế độ Chạy Tự động Bằng CLI Flags (Dành cho CI/CD hoặc Headless VPS)
 
-# 2. BẬT LẠI sau khi sửa xong
-docker compose -f docker-compose-app.yaml start
-
-# 3. KHỞI ĐỘNG LẠI nhanh 4 AI Service
-docker compose -f docker-compose-app.yaml restart
-
-# 4. TẮT HOÀN TOÀN TẤT CẢ (4 AI Service + Toàn bộ Hạ tầng)
-docker compose -f docker-compose-infra.yaml -f docker-compose-app.yaml down
-
-# 5. TẠM DỪNG NHANH tất cả container đang chạy (Emergency Pause)
-docker stop $(docker ps -q)
-```
+| Cờ lệnh (Flag) | Mục đích |
+|---|---|
+| `./deploy.sh --all` | Chạy toàn bộ quy trình: Kiểm tra + Hạ tầng + Build + Seed qua Docker + 4 AI Services + Health check |
+| `./deploy.sh --infra-only` | Chỉ khởi động cụm hạ tầng (Kafka, Redis, Mongo, Qdrant, MinIO, LiteLLM) |
+| `./deploy.sh --app-only` | Chỉ khởi động 4 AI Service (Doc, Write, Chat, Enhance) |
+| `./deploy.sh --build` | Rebuild image `autoresearching-ai:latest` từ Dockerfile |
+| `./deploy.sh --seed` | Chạy `seed_infra.py` bên trong Docker container (nạp Redis AI_KEY, S3 buckets, Kafka topics) |
+| `./deploy.sh --status` | Quét trạng thái containers và kiểm tra kết nối các cổng mạng |
+| `./deploy.sh --logs [service]` | Xem log realtime (vd: `./deploy.sh --logs doc` hoặc `./deploy.sh --logs`) |
+| `./deploy.sh --restart [target]` | Restart dịch vụ (vd: `./deploy.sh --restart app` hoặc `./deploy.sh --restart doc`) |
+| `./deploy.sh --test` | Mở menu chạy các kịch bản kiểm thử Kafka qua Docker |
+| `./deploy.sh --down` | Dừng an toàn toàn bộ hệ thống (App + Hạ tầng) |
 
 ---
 
@@ -149,23 +161,20 @@ docker compose -f docker-compose-infra.yaml ps
 
 ---
 
-### Bước 3: Nạp dữ liệu khởi tạo (Seed Data vào Redis & MinIO)
+### Bước 3: Nạp dữ liệu khởi tạo (Seed Data vào Redis & MinIO qua Docker)
 
-Hệ thống cần các API key trong Redis (`AI_KEY:*`) và các S3 buckets sẵn có trong MinIO.
+Hệ thống cần các API key trong Redis (`AI_KEY:*`) và các S3 buckets sẵn có trong MinIO. Bạn nạp dữ liệu hoàn toàn bằng Docker mà không cần cài Python/venv:
 
 ```bash
-# Tạo môi trường ảo Python nhẹ để chạy script seed (chỉ cần chạy 1 lần)
-python3 -m venv venv
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install redis minio pymongo pydantic-settings httpx
+# Nạp dữ liệu tự động qua Docker container:
+./deploy.sh --seed
 
-# Chạy script nạp dữ liệu
-./venv/bin/python scripts/seed_infra.py
+# Hoặc nếu chạy thủ công qua lệnh docker run:
+docker run --rm --network host --env-file .env -v "$(pwd)":/app autoresearching-ai:latest python scripts/seed_infra.py
 ```
 
 *Kết quả mong đợi:*
-- `✓ Nạp thành công key AI_KEY:GEMINI vào Redis`
-- `✓ Nạp thành công key AI_KEY:OPENAI vào Redis`
+- `✓ Đã nạp Redis key: AI_KEY:* vào Redis`
 - `✓ Đã tạo/kiểm tra 4 MinIO buckets: autoresearching, analysis, documents, users`
 - `✓ MongoDB & Qdrant kết nối thành công!`
 
@@ -193,16 +202,16 @@ docker logs --tail 30 autoresearching-enhance
 
 ---
 
-### Bước 5: Chạy Smoke Test kiểm tra End-to-End
+### Bước 5: Chạy Smoke Test kiểm tra End-to-End (Qua Docker)
 
-Chạy script giả lập Backend gửi một request tìm kiếm bài báo khoa học qua Kafka:
+Chạy script giả lập gửi request tìm kiếm bài báo khoa học qua Kafka bằng Docker:
 
 ```bash
-# Cài thêm aiokafka vào venv nếu chưa có
-./venv/bin/pip install aiokafka
+# Chạy smoke test qua menu test của deploy.sh:
+./deploy.sh --test
 
-# Chạy smoke test
-./venv/bin/python scripts/test_kafka_search_papers.py
+# Hoặc chạy trực tiếp script test mong muốn qua Docker container:
+docker run --rm -it --network host --env-file .env -v "$(pwd)":/app autoresearching-ai:latest python scripts/test_kafka_search_papers.py
 ```
 
 *Nếu điền đúng API key thật vào `.env`, script sẽ trả về danh sách bài báo khoa học từ OpenAlex thành công!*

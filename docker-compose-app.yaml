@@ -61,3 +61,21 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./tmp:/tmp/autoresearching
     command: ["python", "main_enhance_local.py"]
+
+  # ==============================================================================
+  # 5. MODEL MANAGER SERVICE (Giao diện Web Quản lý Model AI & Keys trên Port 8088)
+  # ==============================================================================
+  autoresearching-model-manager:
+    image: autoresearching-ai:latest
+    container_name: autoresearching-model-manager
+    network_mode: "host"
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./.env:/app/.env:ro
+      - ./model_manager:/app/model_manager
+      - ./tmp:/app/tmp
+    command: ["uvicorn", "model_manager.main:app", "--host", "0.0.0.0", "--port", "8088"]
+
