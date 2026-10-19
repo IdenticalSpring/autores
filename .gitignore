@@ -96,3 +96,5 @@ CURSOR.md
 TASK_PLAN.md
 task_*.md
 *.task.md
+DOCS_INDEX.md
+docs/KAFKA_INTEGRATION_GUIDE.md
