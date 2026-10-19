@@ -20,17 +20,19 @@ logger = logging.getLogger(__name__)
 
 async def seed_redis():
     logger.info("--- [1/4] Khởi tạo dữ liệu Redis ---")
+    host = settings.REDIS_HOST.strip("\"'") if settings.REDIS_HOST else "localhost"
+    pwd = settings.REDIS_PWD.strip("\"'") if settings.REDIS_PWD else None
     r = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PWD,
+        host=host,
+        port=settings.REDIS_PORT or 6379,
+        password=pwd,
         decode_responses=True
     )
     
     # Danh sách model_id phổ biến cần seed key vào Redis
-    gemini_key = settings.GEMINI_KEY or "DUMMY_GEMINI_KEY"
-    openai_key = settings.OPEN_AI_KEY or "DUMMY_OPENAI_KEY"
-    serp_key = settings.SERP_KEY or "DUMMY_SERP_KEY"
+    gemini_key = (settings.GEMINI_KEY or "").strip("\"'") or "DUMMY_GEMINI_KEY"
+    openai_key = (settings.OPEN_AI_KEY or "").strip("\"'") or "DUMMY_OPENAI_KEY"
+    serp_key = (settings.SERP_KEY or "").strip("\"'") or "DUMMY_SERP_KEY"
 
     keys_to_set = {
         "AI_KEY:db_key": openai_key,
@@ -58,19 +60,20 @@ async def seed_redis():
 
 def seed_minio():
     logger.info("--- [2/4] Khởi tạo MinIO Buckets ---")
+    endpoint = (settings.MINIO_ENDPOINT or "localhost").strip("\"'")
+    port = settings.MINIO_PORT or 9000
+    access_key = settings.MINIO_ACCESS_KEY_ID.strip("\"'")
+    secret_key = settings.MINIO_SECRET_ACCESS_KEY.strip("\"'")
     client = Minio(
-        f"{settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}",
-        access_key=settings.MINIO_ACCESS_KEY_ID,
-        secret_key=settings.MINIO_SECRET_ACCESS_KEY,
+        f"{endpoint}:{port}",
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False
     )
 
-    buckets = [
-        settings.MINIO_BUCKET or "autoresearching",
-        settings.MINIO_BUCKET_ANALYSIS or "analysis",
-        "users",
-        "documents"
-    ]
+    bucket_main = (settings.MINIO_BUCKET or "autoresearching").strip("\"'")
+    bucket_analysis = (settings.MINIO_BUCKET_ANALYSIS or "analysis").strip("\"'")
+    buckets = [bucket_main, bucket_analysis, "users", "documents"]
 
     for bucket in set(buckets):
         try:
@@ -85,8 +88,9 @@ def seed_minio():
 
 def check_mongo():
     logger.info("--- [3/4] Kiểm tra kết nối MongoDB ---")
+    mongo_uri = (settings.MONGO_CONNECTION_STRING or "").strip("\"'")
     try:
-        client = MongoClient(settings.MONGO_CONNECTION_STRING, serverSelectionTimeoutMS=5000)
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
         res = client.admin.command('ping')
         logger.info(f"  ✓ MongoDB kết nối thành công: {res}")
     except Exception as e:
@@ -95,9 +99,10 @@ def check_mongo():
 
 async def check_qdrant():
     logger.info("--- [4/4] Kiểm tra Qdrant ---")
+    qdrant_url = (settings.QDRANT_URL or "http://localhost:6333").strip("\"'")
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
-            res = await client.get(f"{settings.QDRANT_URL}/readyz")
+            res = await client.get(f"{qdrant_url}/readyz")
             logger.info(f"  ✓ Qdrant readyz: {res.status_code} - {res.text.strip()}")
         except Exception as e:
             logger.error(f"  ✗ Lỗi kết nối Qdrant: {e}")

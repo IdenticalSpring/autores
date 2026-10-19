@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoResearching — AI Model Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-container">
+    <div class="glass-card login-card">
+      <div class="logo-box">🤖</div>
+      <h2>AutoResearching</h2>
+      <p class="subtitle">AI Model & Key Management Portal</p>
+      <form id="login-form">
+        <div class="input-group">
+          <label for="admin-password">Mật khẩu Quản trị</label>
+          <input type="password" id="admin-password" placeholder="Nhập ADMIN_PASSWORD..." required autofocus>
+        </div>
+        <button type="submit" id="btn-login" class="btn btn-primary btn-block">Đăng Nhập Quản Trị</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div id="dashboard-screen" class="dashboard-container" style="display: none;">
+    <header class="navbar glass-card">
+      <div class="brand">
+        <span class="brand-icon">🤖</span>
+        <div>
+          <h1>AutoResearching <span class="badge badge-accent">Model Manager</span></h1>
+          <p class="subtext">Quản lý trực tiếp cấu hình Model trên Redis cho 4 AI Services</p>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <span class="status-indicator"><span class="dot pulse"></span> Redis: Sẵn sàng</span>
+        <button id="btn-logout" class="btn btn-outline-danger">Đăng Xuất</button>
+      </div>
+    </header>
+
+    <!-- Stats Overview -->
+    <div class="stats-grid">
+      <div class="stat-card glass-card">
+        <div class="stat-title">Tổng số Model</div>
+        <div class="stat-value" id="stat-total-models">0</div>
+        <div class="stat-desc">Đã kích hoạt trong Redis</div>
+      </div>
+      <div class="stat-card glass-card">
+        <div class="stat-title">Dịch vụ Kết nối</div>
+        <div class="stat-value text-accent">4 Services</div>
+        <div class="stat-desc">Doc, Write, Chat, Enhance</div>
+      </div>
+      <div class="stat-card glass-card">
+        <div class="stat-title">Chế độ Triển khai</div>
+        <div class="stat-value text-success">Docker-First</div>
+        <div class="stat-desc">Đồng bộ tức thì (Real-time)</div>
+      </div>
+    </div>
+
+    <!-- Main Table Container -->
+    <main class="content-card glass-card">
+      <div class="toolbar">
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="🔍 Tìm kiếm model (vd: gemini, gpt, flash)...">
+        </div>
+        <div class="tool-actions">
+          <button id="btn-refresh" class="btn btn-secondary">🔄 Tải lại</button>
+          <button id="btn-open-add" class="btn btn-primary">➕ Thêm Model Mới</button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="model-table">
+          <thead>
+            <tr>
+              <th>Tên Model (model_id)</th>
+              <th>Nhà Cung Cấp</th>
+              <th>API Key Cấu Hình</th>
+              <th>Trạng Thái</th>
+              <th>Hành Động</th>
+            </tr>
+          </thead>
+          <tbody id="models-table-body">
+            <!-- Dynamic rows rendered by app.js -->
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Model Modal -->
+  <div id="add-modal" class="modal-backdrop" style="display: none;">
+    <div class="glass-card modal-content">
+      <div class="modal-header">
+        <h3>➕ Thêm / Cập Nhật Model AI</h3>
+        <button class="btn-close" id="btn-close-modal">&times;</button>
+      </div>
+      <form id="add-model-form">
+        <div class="input-group">
+          <label for="new-model-id">Tên Model (model_id) <span class="required">*</span></label>
+          <input type="text" id="new-model-id" placeholder="vd: gemini-3.8-flash, gemini-3.5-flash-lite..." required>
+          <div class="quick-chips">
+            <span class="chip" data-name="gemini-3.8-flash">gemini-3.8-flash</span>
+            <span class="chip" data-name="gemini-3.5-flash-lite">gemini-3.5-flash-lite</span>
+            <span class="chip" data-name="gemini-2.0-flash">gemini-2.0-flash</span>
+            <span class="chip" data-name="gpt-4.5-preview">gpt-4.5-preview</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="key-type">Nguồn API Key</label>
+          <select id="key-type">
+            <option value="gemini">Dùng GEMINI_KEY chung (từ .env)</option>
+            <option value="openai">Dùng OPEN_AI_KEY chung (từ .env)</option>
+            <option value="groq">Dùng Groq / Localhost (Không cần key)</option>
+            <option value="custom">Nhập API Key riêng cho model này</option>
+          </select>
+        </div>
+
+        <div class="input-group" id="custom-key-group" style="display: none;">
+          <label for="custom-key-val">Nhập API Key Riêng <span class="required">*</span></label>
+          <input type="password" id="custom-key-val" placeholder="AIzaSy... hoặc sk-proj...">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-modal">Hủy Bỏ</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-model">Lưu Vào Redis</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Test Model Result Modal -->
+  <div id="test-modal" class="modal-backdrop" style="display: none;">
+    <div class="glass-card modal-content">
+      <div class="modal-header">
+        <h3 id="test-modal-title">🧪 Kiểm Tra Kết Nối Model</h3>
+        <button class="btn-close" id="btn-close-test-modal">&times;</button>
+      </div>
+      <div class="test-body">
+        <div id="test-spinner" class="spinner-box">
+          <div class="spinner"></div>
+          <p>Đang gửi request thử nghiệm tới AI provider...</p>
+        </div>
+        <div id="test-result-box" style="display: none;">
+          <div id="test-status-badge" class="badge"></div>
+          <div class="test-detail-box">
+            <p><strong>Thời gian phản hồi:</strong> <span id="test-latency">-- ms</span></p>
+            <p><strong>Thông điệp:</strong></p>
+            <pre id="test-message" class="code-preview"></pre>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-close-test-btn">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
