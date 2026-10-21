@@ -1297,8 +1297,21 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     logger.error(traceback.format_exc())
                     
         elif event_type == DocumentSetupEvent.USER_GUIDE_DOCUMENTS:
+            # Echo identifier từ request để response lỗi (603/604/619) vẫn map được job của BE
+            for identifier in ("user_id", "document_id", "session_id", "data_id"):
+                if identifier in value:
+                    message[identifier] = value[identifier]
             try:
                 docs = value["documents_urls"]
+                # Type validation
+                self.field_validate_list_str({"documents_urls": docs})
+                # Format validation: mỗi phần tử bắt buộc là "bucket/key"
+                for document_url in docs:
+                    bucket, separator, object_name = document_url.partition("/")
+                    if not bucket or not separator or not object_name.lstrip("/").strip():
+                        raise ValueError(
+                            f"documents_urls must be 'bucket/key', got '{document_url}'"
+                        )
                 # Empty value checks
                 self.empty_value_check({"docs": docs})
             except KeyError as e:

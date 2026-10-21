@@ -15,6 +15,7 @@ import tiktoken
 import time
 
 from document_setup.src.configs.app import settings
+from document_setup.src.modules.minio_path import parse_minio_path
 from document_setup.src.modules.knowledge_prompt_bank import (
     GET_ABSTRACT_PROMPT, 
     KEY_POINTS_PROMPT, 
@@ -746,10 +747,10 @@ class VectorDBProcessor():
             return f"Unsupported word format: {file_path.suffix}"
 
     async def _ingest_user_guide_docs(self, url: str) -> str:
-        minio_bucket = url.split('/')[0]
-        object_name = url.replace(minio_bucket, "")
-        file_path = f"{settings.TMP_FOLDER}/{object_name}"
-        os.makedirs(settings.TMP_FOLDER, exist_ok=True)
+        # url là "bucket/key" (không phải URL đầy đủ); key phải bỏ dấu '/' đầu
+        minio_bucket, object_name = parse_minio_path(url)
+        file_path = os.path.join(settings.TMP_FOLDER, object_name)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         self.minioClient.fget_object(minio_bucket, object_name, file_path)
         path = Path(file_path)
         extension = path.suffix.lower()
