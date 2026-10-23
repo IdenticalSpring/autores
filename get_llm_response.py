@@ -138,6 +138,55 @@ def _get_usage_tokens(response) -> tuple[int, int]:
     )
 
 
+def _raw_message_text(response) -> str:
+    """Lấy text thô từ response `include_raw=True` (ChatOpenAI / ChatGoogleGenerativeAI)."""
+    raw = response.get("raw") if isinstance(response, dict) else None
+    if raw is None:
+        return ""
+    content = getattr(raw, "content", None)
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            parts.append(str(part.get("text", "")) if isinstance(part, dict) else str(part))
+        content = "".join(parts)
+    return content if isinstance(content, str) else ""
+
+
+def _strip_code_fence(text: str) -> str:
+    """Bỏ ```json ... ``` bao ngoài nếu model trả kèm code fence."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+        if cleaned[:4].lower() == "json":
+            cleaned = cleaned[4:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+    return cleaned.strip()
+
+
+def _parse_structured_fallback(response, structure):
+    """Fallback khi `parsed` rỗng: parse JSON thô của model vào schema.
+
+    Nhiều model (đặc biệt khi đi qua LiteLLM) trả JSON đúng nhưng LangChain không
+    parse được (model không hỗ trợ response_schema / trả kèm code fence) ⇒ `parsed=None`.
+    Hàm này chỉ parse lại **những gì model đã trả**, không bịa dữ liệu.
+    """
+    text = _strip_code_fence(_raw_message_text(response))
+    if not text:
+        return None
+    try:
+        return structure.model_validate_json(text)
+    except Exception:
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        try:
+            return structure.model_validate_json(text[start:end + 1])
+        except Exception:
+            return None
+    return None
+
+
 async def get_answer_with_schema(
     _id: str,
     llm: ChatGoogleGenerativeAI | ChatOpenAI,
@@ -171,6 +220,12 @@ async def get_answer_with_schema(
             network_error = False
             response = await structured_llm.ainvoke(input=messages)
             result = response.get("parsed") if isinstance(response, dict) else None
+            if result is None:
+                # Fallback: model có thể trả JSON nhưng LangChain không parse được
+                # (vd model không hỗ trợ response_schema). Chỉ parse lại raw content.
+                result = _parse_structured_fallback(response, structure)
+                if result is not None:
+                    logger.warning(f"[{_id}] {schema_name}: parsed rỗng, đã parse lại từ raw content")
             if result is None:
                 raise ValueError(f"Structured output was empty for schema {schema_name}")
             curr_input_tokens, curr_output_tokens = _get_usage_tokens(response)
