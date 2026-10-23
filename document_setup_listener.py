@@ -1327,7 +1327,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["output_tokens"] = output_tokens
                     message["model_id"] = module.model_id
                     message["embed_tokens"] = 0
-                    message["embed_model"] = embeddings_model
+                    message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
                     logger.error(f'[{_id}] SEND: admin_documents')
                     end = time.time()
                     logger.error(f'[{_id}] admin_documents time: {end - start_time}')
@@ -1391,7 +1391,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["input_tokens"] = 0
                     message["output_tokens"] = 0
                     message["embed_tokens"] = embed_tokens
-                    message["embed_model"] = embeddings_model
+                    message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
                     message["data_id"] = value["data_id"]
                     logger.error(f'[{_id}] SEND: user_guide_documents')
                     end = time.time()
@@ -1526,7 +1526,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["input_tokens"] = 0
                     message["output_tokens"] = 0
                     message["embed_tokens"] = embed_tokens
-                    message["embed_model"] = embeddings_model
+                    message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
                     logger.error(f'[{_id}] SEND: embed_user_documents')
                     end = time.time()
                     logger.error(f'[{_id}] embed_user_documents time: {end - start_time}')
