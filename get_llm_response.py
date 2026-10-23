@@ -22,6 +22,28 @@ logging.getLogger("openai").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
+# Các model trả structured output RỖNG với finish_reason=STOP (vd gemini-3.5-flash-lite):
+# không hỗ trợ response_schema/function-calling ⇒ từ lần sau gọi thẳng plain-JSON.
+_STRUCTURED_UNSUPPORTED_MODELS: set[str] = set()
+
+
+def _model_name(llm) -> str:
+    return str(getattr(llm, "model_name", None) or getattr(llm, "model", "") or "")
+
+
+def _is_structured_unsupported(llm) -> bool:
+    return _model_name(llm) in _STRUCTURED_UNSUPPORTED_MODELS
+
+
+def _mark_structured_unsupported(llm) -> bool:
+    """Đánh dấu model không dùng được structured output. Trả True nếu MỚI đánh dấu."""
+    name = _model_name(llm)
+    if not name or name in _STRUCTURED_UNSUPPORTED_MODELS:
+        return False
+    _STRUCTURED_UNSUPPORTED_MODELS.add(name)
+    return True
+
+
 MAX_OUTPUT_TOKENS_MODEL_CONFIG = {
     "gemini-2.0-flash": 10000,
     "gemini-2.5-pro": 10000,
@@ -234,6 +256,7 @@ async def get_answer_with_schema(
 ) -> tuple[AIERROR | None, bool, str, int, int]:
     structured_llm = llm.with_structured_output(structure, include_raw=True)
     schema_name = getattr(structure, "__name__", str(structure))
+    model_name = _model_name(llm)
     
     # Prepare messages
     messages = []
@@ -253,6 +276,30 @@ async def get_answer_with_schema(
     input_tokens = 0
     output_tokens = 0
     status_code = 0
+
+    # Model đã biết không hỗ trợ structured output (từng trả rỗng + finish_reason=STOP):
+    # đi thẳng plain-JSON, tránh 3 vòng retry vô ích (~9s/vòng).
+    if _is_structured_unsupported(llm):
+        logger.warning(
+            f"[{_id}] {schema_name}: model '{model_name}' không hỗ trợ structured output → dùng plain-JSON"
+        )
+        plain_result, plain_in, plain_out, plain_text = await _plain_json_fallback(llm, messages, structure)
+        input_tokens += plain_in
+        output_tokens += plain_out
+        if plain_result is not None:
+            return None, True, plain_result, input_tokens, output_tokens
+        logger.error(
+            f"[{_id}] {schema_name}: plain-JSON cũng rỗng (raw_len={len(plain_text)}) "
+            f"với model '{model_name}'."
+        )
+        return (
+            AIERROR(status_code=500, message=f"Model '{model_name}' returned empty content for schema {schema_name}"),
+            False,
+            "",
+            input_tokens,
+            output_tokens,
+        )
+
     for attempt in range(3):
         try:
             network_error = False
@@ -268,10 +315,6 @@ async def get_answer_with_schema(
                 finish_reason = _finish_reason(response)
                 if attempt == 0:
                     # Fallback 2: gọi plain-text + yêu cầu JSON theo schema (1 lần, tránh nhân chi phí)
-                    logger.warning(
-                        f"[{_id}] {schema_name}: parsed rỗng (finish_reason='{finish_reason}', "
-                        f"raw_len={len(raw_text)}). Thử fallback plain-json..."
-                    )
                     fb_result, fb_in, fb_out, fb_text = await _plain_json_fallback(llm, messages, structure)
                     input_tokens += fb_in
                     output_tokens += fb_out
@@ -282,13 +325,32 @@ async def get_answer_with_schema(
                         f"[{_id}] {schema_name}: fallback plain-json cũng rỗng "
                         f"(raw_len={len(fb_text)}, preview={fb_text[:200]!r})"
                     )
+                    # Rỗng ở CẢ 2 chế độ ⇒ model không trả nội dung: đánh dấu và dừng retry
+                    if not raw_text and not fb_text and _mark_structured_unsupported(llm):
+                        logger.error(
+                            f"[{_id}] {schema_name}: model '{model_name}' trả rỗng cả structured và plain-JSON "
+                            "→ đánh dấu unsupported, dừng retry."
+                        )
+                        return (
+                            AIERROR(
+                                status_code=500,
+                                message=f"Model '{model_name}' returned empty content for schema {schema_name}",
+                            ),
+                            False,
+                            "",
+                            input_tokens,
+                            output_tokens,
+                        )
                 else:
                     logger.warning(
                         f"[{_id}] {schema_name}: parsed rỗng lần {attempt + 1}/3 "
                         f"(finish_reason='{finish_reason}', raw_len={len(raw_text)}, "
                         f"preview={raw_text[:200]!r})"
                     )
-                raise ValueError(f"Structured output was empty for schema {schema_name}")
+                raise ValueError(
+                    f"Structured output was empty for schema {schema_name} "
+                    f"(model='{model_name}', finish_reason='{finish_reason}', raw_len={len(raw_text)})"
+                )
             curr_input_tokens, curr_output_tokens = _get_usage_tokens(response)
             input_tokens += curr_input_tokens
             output_tokens += curr_output_tokens
