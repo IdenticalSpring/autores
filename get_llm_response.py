@@ -1,5 +1,8 @@
 import asyncio
 import json
+import re
+import typing
+from typing import List, Union
 import httpx
 import openai
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -10,7 +13,6 @@ from pydantic import BaseModel, Field
 from tavily.errors import InvalidAPIKeyError, UsageLimitExceededError, MissingAPIKeyError, BadRequestError
 from tavily.async_tavily import AsyncTavilyClient
 from datetime import datetime
-from typing import List, Union
 
 from exception_type import AIERROR
 from error_handle import handle_llm_exception
@@ -188,34 +190,79 @@ def _strip_code_fence(text: str) -> str:
 
 
 def _load_json_lenient(text: str):
-    """Cố lấy dict JSON từ output của model (kể cả có code fence hoặc bị cắt cụt)."""
-    cleaned = _strip_code_fence(text or "")
+    """Cố lấy dict JSON từ output của model (kể cả có code fence, literal newlines hoặc bị cắt cụt)."""
+    if not text or not isinstance(text, str):
+        return None
+    cleaned = _strip_code_fence(text)
     if not cleaned:
         return None
-    candidates = [cleaned]
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if 0 <= start < end:
-        candidates.append(cleaned[start:end + 1])
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
+
+    candidates = []
+    # 1. Nếu có block ```json ... ``` bên trong văn bản
+    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+    if fence_match:
+        candidates.append(fence_match.group(1).strip())
+
+    candidates.append(cleaned)
+
+    # 2. Từ { đầu tiên đến } cuối cùng
+    start_brace, end_brace = cleaned.find("{"), cleaned.rfind("}")
+    if 0 <= start_brace < end_brace:
+        candidates.append(cleaned[start_brace : end_brace + 1])
+
+    # 3. Từ [ đầu tiên đến ] cuối cùng (nếu model trả mảng JSON)
+    start_bracket, end_bracket = cleaned.find("["), cleaned.rfind("]")
+    if 0 <= start_bracket < end_bracket:
+        candidates.append(cleaned[start_bracket : end_bracket + 1])
+
+    for cand in list(candidates):
+        if not cand:
             continue
-    # JSON bị cắt cụt (hết max_tokens): cắt tại dấu phẩy cuối rồi đóng object
-    if "{" in cleaned:
-        body = cleaned[cleaned.find("{"):]
-        cut = body.rfind(",")
-        if cut > 0:
+        cand_no_trailing = re.sub(r",\s*([}\]])", r"\1", cand)
+        for c in (cand, cand_no_trailing):
             try:
-                parsed = json.loads(body[:cut] + "}")
+                parsed = json.loads(c, strict=False)
                 if isinstance(parsed, dict):
-                    logger.warning("[structured] JSON bị cắt cụt → đã sửa bằng cách đóng object ở field cuối hợp lệ")
                     return parsed
+                if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+                    return parsed[0]
             except Exception:
-                pass
+                continue
+
+    # 4. JSON bị cắt cụt (hết max_tokens): cắt lùi dần từ dấu phẩy cuối rồi thử đóng object/string
+    if "{" in cleaned:
+        body = cleaned[cleaned.find("{") :]
+        for closer in ("}", '"}', "]}", '"]}', "\n}"):
+            cut = body.rfind(",")
+            while cut > 0:
+                attempt_str = body[:cut] + closer
+                try:
+                    parsed = json.loads(attempt_str, strict=False)
+                    if isinstance(parsed, dict):
+                        logger.warning("[structured] JSON bị cắt cụt → đã sửa bằng cách đóng object ở field cuối hợp lệ")
+                        return parsed
+                except Exception:
+                    pass
+                cut = body.rfind(",", 0, cut)
     return None
+
+
+def _unwrap_root_dict(data, structure):
+    """Unwrap wrapper object nếu model bọc kết quả vào key cha (ví dụ {'KeyPoints': {...}})."""
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+        data = data[0]
+    if not isinstance(data, dict):
+        return data
+    fields = set(structure.model_fields.keys())
+    if any(f in data for f in fields):
+        return data
+    for val in data.values():
+        if isinstance(val, dict) and any(f in val for f in fields):
+            return val
+        if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+            if any(f in val[0] for f in fields):
+                return val[0]
+    return data
 
 
 def _fill_missing_fields(data: dict, structure) -> list[str]:
@@ -246,36 +293,76 @@ def _fill_missing_fields(data: dict, structure) -> list[str]:
 def _coerce_scalar_fields(data: dict, structure) -> list[str]:
     """Ép kiểu "mềm" cho field `str`/`list[str]` khi model trả sai kiểu.
 
-    Chỉ đổi **kiểu dữ liệu**, không đổi nội dung: `2024 → "2024"`, `"a" → ["a"]`.
+    Chỉ đổi **kiểu dữ liệu**, không đổi nội dung:
+    - `2024 → "2024"`
+    - `["a", "b"] → "a\nb"` (khi prompt yêu cầu bullet points)
+    - `{"approach": "quantitative"} → "- approach: quantitative"`
+    - `"a" → ["a"]`
+    - `[{"name": "X"}] → ["name: X"]` (model trả list[dict] cho list[str])
     Trả danh sách field đã ép để log.
     """
     coerced: list[str] = []
     for name, field in structure.model_fields.items():
-        if name not in data:
+        if name not in data or data[name] is None:
             continue
         value = data[name]
         annotation = field.annotation
-        if annotation is str and isinstance(value, (int, float, bool)):
-            data[name] = str(value)
-            coerced.append(name)
-        elif getattr(annotation, "__origin__", None) is list and isinstance(value, str):
-            data[name] = [value]
-            coerced.append(name)
+        origin = getattr(annotation, "__origin__", None)
+        args = getattr(annotation, "__args__", ())
+        if origin is typing.Union:
+            non_none = [a for a in args if a is not type(None)]
+            if len(non_none) == 1:
+                annotation = non_none[0]
+                origin = getattr(annotation, "__origin__", None)
+
+        if annotation is str:
+            if isinstance(value, (int, float, bool)):
+                data[name] = str(value)
+                coerced.append(name)
+            elif isinstance(value, list):
+                data[name] = "\n".join(str(x) for x in value)
+                coerced.append(name)
+            elif isinstance(value, dict):
+                data[name] = "\n".join(f"- {k}: {v}" for k, v in value.items())
+                coerced.append(name)
+        elif origin is list:
+            if isinstance(value, str):
+                data[name] = [value]
+                coerced.append(name)
+            elif isinstance(value, dict):
+                data[name] = [f"{k}: {v}" for k, v in value.items()]
+                coerced.append(name)
+            elif isinstance(value, list):
+                has_changed = False
+                new_list = []
+                for item in value:
+                    if isinstance(item, str):
+                        new_list.append(item)
+                    elif isinstance(item, dict):
+                        new_list.append(", ".join(f"{k}: {v}" for k, v in item.items()))
+                        has_changed = True
+                    else:
+                        new_list.append(str(item))
+                        has_changed = True
+                if has_changed:
+                    data[name] = new_list
+                    coerced.append(name)
     return coerced
 
 
 def _parse_structured_text(text: str, structure):
     """Parse text thành `structure`.
 
-    - Chấp nhận JSON bọc code fence / lẫn văn bản / bị cắt cụt.
+    - Chấp nhận JSON bọc code fence / lẫn văn bản / literal newlines / bị cắt cụt / bọc wrapper key.
     - **Bù field bắt buộc còn thiếu bằng chuỗi rỗng** để không chặn ingest (dữ liệu model trả
       vẫn được giữ nguyên, không suy diễn thêm) và log tên field thiếu để biết prompt cần siết.
-    - Ép kiểu mềm (`2024 → "2024"`) khi model trả sai kiểu scalar.
+    - Ép kiểu mềm (`2024 → "2024"`, `["a"] → "a"`, `[dict] → [str]`) khi model trả sai kiểu scalar/list.
     Trả None nếu không lấy được JSON object nào hoặc JSON sai kiểu không cứu được.
     """
     data = _load_json_lenient(text)
     if data is None:
         return None
+    data = _unwrap_root_dict(data, structure)
     missing = _fill_missing_fields(data, structure)
     coerced = _coerce_scalar_fields(data, structure)
     try:
