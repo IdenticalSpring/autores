@@ -150,6 +150,7 @@ class VectorDBProcessor():
         return (
             [{k: v for k, v in res.items() if k not in ["full_text", "key_points"]} for res in results if res], 
             self.input_tokens, 
+            self.output_tokens, 
             getattr(self.embeddings, "model_name", None)
             if isinstance(getattr(self.embeddings, "model_name", None), str)
             else (self.embeddings.model if isinstance(getattr(self.embeddings, "model", None), str) else str(settings.EMBEDDING_MODEL or "BAAI/bge-small-en-v1.5"))
