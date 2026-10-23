@@ -57,9 +57,70 @@ def test_invalid_or_empty_content_returns_none():
     assert llm_module._parse_structured_fallback({"parsed": None}, DummySchema) is None
 
 
-def test_missing_required_field_returns_none():
+def test_missing_required_field_is_filled_with_empty_string():
+    """Model trả JSON thiếu field ⇒ bù rỗng (không chặn ingest, không bịa nội dung)."""
     content = '{"main_topic": "only one field"}'
-    assert llm_module._parse_structured_fallback(response_with(content), DummySchema) is None
+    result = llm_module._parse_structured_fallback(response_with(content), DummySchema)
+    assert isinstance(result, DummySchema)
+    assert result.main_topic == "only one field"
+    assert result.importance == ""
+
+
+def test_truncated_json_is_repaired():
+    """JSON bị cắt cụt (hết max_tokens) vẫn cứu được các field hoàn chỉnh."""
+    content = '{"main_topic": "AI in research", "importance": "faster", "backgr'
+    result = llm_module._parse_structured_fallback(response_with(content), DummySchema)
+    assert isinstance(result, DummySchema)
+    assert result.main_topic == "AI in research"
+    assert result.importance == "faster"
+
+
+def test_fill_missing_fields_types():
+    class RichSchema(BaseModel):
+        text_field: str
+        list_field: list[str]
+        int_field: int
+        bool_field: bool
+        optional_field: str = "default"
+
+    data = {}
+    missing = llm_module._fill_missing_fields(data, RichSchema)
+    assert data == {"text_field": "", "list_field": [], "int_field": 0, "bool_field": False}
+    assert "optional_field" not in data  # field có default: để Pydantic tự xử lý
+    assert sorted(missing) == ["bool_field", "int_field", "list_field", "text_field"]
+
+
+def test_coerce_scalar_fields():
+    class CoerceSchema(BaseModel):
+        year: str
+        tags: list[str]
+        others: str
+
+    data = {"year": 2024, "tags": "single", "others": "ok"}
+    coerced = llm_module._coerce_scalar_fields(data, CoerceSchema)
+    assert data == {"year": "2024", "tags": ["single"], "others": "ok"}
+    assert sorted(coerced) == ["tags", "year"]
+
+
+def test_wrong_scalar_type_is_coerced_then_validated():
+    class YearSchema(BaseModel):
+        year: str
+        note: str
+
+    result = llm_module._parse_structured_text('{"year": 2024, "note": "n"}', YearSchema)
+    assert isinstance(result, YearSchema) and result.year == "2024"
+
+
+def test_partial_key_points_still_validates():
+    """Mô phỏng thực tế: KeyPoints có 15 field bắt buộc nhưng model chỉ trả vài field."""
+    from document_setup.src.schemas.search_papers import KeyPoints
+
+    content = '{"main_topic": "Digital transformation", "methodology": "PLS-SEM"}'
+    result = llm_module._parse_structured_text(content, KeyPoints)
+    assert isinstance(result, KeyPoints)
+    assert result.main_topic == "Digital transformation"
+    assert result.methodology == "PLS-SEM"
+    assert result.research_gap == ""
 
 
 def test_raw_text_helper_handles_str_and_list():
