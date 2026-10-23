@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 ECHO_REQUIRED = ("event_type", "user_id", "document_id", "session_id")
 
 
-def build_payload(pdf_path: str, user_id: str, document_id: str, session_id: str) -> dict:
+def build_payload(pdf_path: str, model_id: str, user_id: str, document_id: str, session_id: str) -> dict:
     return {
         "event_type": DocumentSetupEvent.ADMIN_DOCUMENTS.value,
-        "model_id": "localhost",
+        "model_id": model_id,
         "user_id": user_id,
         "document_id": document_id,
         "session_id": session_id,
@@ -66,7 +66,7 @@ async def run(args) -> int:
     suffix = uuid.uuid4().hex[:8]
     session_id = str(uuid.uuid4())
     document_id = f"smoke-admin-{suffix}"
-    payload = build_payload(args.path, "smoke-user", document_id, session_id)
+    payload = build_payload(args.path, args.model, "smoke-user", document_id, session_id)
 
     logger.info("=" * 70)
     logger.info("SMOKE admin_documents")
@@ -76,6 +76,7 @@ async def run(args) -> int:
     logger.info(f"  document_id   : {document_id}")
     logger.info(f"  session_id    : {session_id}")
     logger.info(f"  file          : {args.path}")
+    logger.info(f"  model_id      : {args.model}")
     logger.info("=" * 70)
 
     consumer = AIOKafkaConsumer(
@@ -112,6 +113,12 @@ async def run(args) -> int:
                     if message.get("error_code"):
                         logger.warning("Response là lỗi (error_code=%s): %s",
                                        message["error_code"], message.get("error"))
+                        if int(message["error_code"]) == 401:
+                            logger.warning(
+                                "Gợi ý 401: kiểm tra Redis AI_KEY:%s và env LOCALLLM_BASE_URL "
+                                "(model 'localhost') — 401 KHÔNG nhất thiết là bug code AI.",
+                                args.model,
+                            )
                     else:
                         logger.info("OK: processed_docs=%d", len(message.get("processed_docs") or []))
                     return 0
@@ -129,6 +136,9 @@ def main() -> int:
     parser.add_argument("--path", default="autoresearching/sample/sample.pdf",
                         help="MinIO path dạng bucket/key của file mẫu")
     parser.add_argument("--timeout", type=int, default=300, help="Giây chờ response")
+    parser.add_argument("--model", default=os.getenv("SMOKE_MODEL_ID", "localhost"),
+                        help="model_id gửi trong payload (dùng đúng model BE đang dùng, "
+                             "vd gemini-3.5-flash-lite). Có thể set env SMOKE_MODEL_ID.")
     return asyncio.run(run(parser.parse_args()))
 
 
