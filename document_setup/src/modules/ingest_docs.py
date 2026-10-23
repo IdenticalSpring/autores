@@ -110,8 +110,37 @@ class VectorDBProcessor():
             uuids.append(uuid)
         return uuids
 
+    @staticmethod
+    def _normalize_admin_doc(doc: dict) -> dict:
+        """Chuẩn hoá 1 item của `admin_documents`.
+
+        Hợp đồng: mỗi item cần `url` = MinIO path dạng ``bucket/key``.
+        - Item chỉ có `source` dạng path (BE gửi ``source: "bucket/key"``) → dùng làm `url`.
+        - `source` trong code là nhãn phân loại ``ADMIN``/``USER``; giá trị khác 2 nhãn này
+          được hiểu là đường dẫn file, khi đó ``source`` được đặt = ``ADMIN``.
+
+        Không raise ở đây; item thiếu đường dẫn sẽ bị lọc và báo lỗi ở `ingest_admin_docs`.
+        """
+        normalized = dict(doc)
+        raw_source = str(normalized.get("source") or "").strip()
+        source_is_label = raw_source.upper() in {"ADMIN", "USER"}
+        url = str(normalized.get("url") or "").strip()
+        if not url and raw_source and not source_is_label:
+            url = raw_source
+        if url:
+            normalized["url"] = url
+            normalized["source"] = raw_source.upper() if source_is_label else "ADMIN"
+        return normalized
+
     async def ingest_admin_docs(self, docs: list[dict], mongo_client: AsyncMongoClient) -> tuple[list[dict], int, int, int, str]:
-        tasks = [self._process_single_paper(doc, mongo_client) for doc in docs if "url" in doc]
+        normalized_docs = [self._normalize_admin_doc(doc) for doc in docs]
+        tasks = [self._process_single_paper(doc, mongo_client) for doc in normalized_docs if doc.get("url")]
+        if not tasks:
+            raise AIERROR(
+                618,
+                "No valid documents to ingest: each item requires 'url' as MinIO path "
+                "'bucket/key' (or 'source' containing that path).",
+            )
         papers = await asyncio.gather(*tasks)
         results = [result[0] for result in papers]
         input_tokens = [result[1] for result in papers]
@@ -443,10 +472,11 @@ class VectorDBProcessor():
                 object_name = pdf_path.split("users/")[-1]
                 file_path = f"{settings.TMP_FOLDER}/{object_name.split("/")[-1]}"
             else:
-                minio_bucket = pdf_path.split('/')[0]
-                object_name = pdf_path.replace(minio_bucket, "")
-                file_path = f"{settings.TMP_FOLDER}/{object_name}"
-            os.makedirs(settings.TMP_FOLDER, exist_ok=True)
+                # pdf_path là "bucket/key" (không phải URL) -> tách đúng bucket/key,
+                # tránh object_name dính dấu "/" ở đầu khi dùng replace().
+                minio_bucket, object_name = parse_minio_path(pdf_path)
+                file_path = os.path.join(settings.TMP_FOLDER, object_name)
+            os.makedirs(os.path.dirname(file_path) or settings.TMP_FOLDER, exist_ok=True)
             self.minioClient.fget_object(minio_bucket, object_name, file_path)
             path = Path(file_path)
             extension = path.suffix.lower()

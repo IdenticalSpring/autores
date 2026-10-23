@@ -566,7 +566,7 @@ class ChatbotEventListener(BaseAsyncListener):
                     checkpointer = await get_async_redis_checkpoint()
                     writer = await writer_bot(checkpointer)
                     if not resume_error:
-                        self.clean_up(document_id)
+                        await self.clean_up(document_id)
                         inp = {
                             "document_id": document_id,
                             "user_id": user_id,

@@ -53,3 +53,4 @@ blake3==1.0.7
 fastembed>=0.4.0
 fastapi==0.146.0
 uvicorn==0.54.0
+pytest==8.3.4
