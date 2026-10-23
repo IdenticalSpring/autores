@@ -187,22 +187,109 @@ def _strip_code_fence(text: str) -> str:
     return cleaned.strip()
 
 
-def _parse_structured_text(text: str, structure):
-    """Parse text thành `structure`; trả None nếu không parse được."""
+def _load_json_lenient(text: str):
+    """Cố lấy dict JSON từ output của model (kể cả có code fence hoặc bị cắt cụt)."""
     cleaned = _strip_code_fence(text or "")
     if not cleaned:
         return None
-    try:
-        return structure.model_validate_json(cleaned)
-    except Exception:
-        pass
+    candidates = [cleaned]
     start, end = cleaned.find("{"), cleaned.rfind("}")
     if 0 <= start < end:
+        candidates.append(cleaned[start:end + 1])
+    for candidate in candidates:
         try:
-            return structure.model_validate_json(cleaned[start:end + 1])
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
-            return None
+            continue
+    # JSON bị cắt cụt (hết max_tokens): cắt tại dấu phẩy cuối rồi đóng object
+    if "{" in cleaned:
+        body = cleaned[cleaned.find("{"):]
+        cut = body.rfind(",")
+        if cut > 0:
+            try:
+                parsed = json.loads(body[:cut] + "}")
+                if isinstance(parsed, dict):
+                    logger.warning("[structured] JSON bị cắt cụt → đã sửa bằng cách đóng object ở field cuối hợp lệ")
+                    return parsed
+            except Exception:
+                pass
     return None
+
+
+def _fill_missing_fields(data: dict, structure) -> list[str]:
+    """Điền giá trị rỗng cho field bắt buộc bị thiếu; trả danh sách field đã điền.
+
+    Chỉ xử lý field bắt buộc (`is_required()`): field có default sẵn thì để Pydantic
+    tự dùng default, không ghi đè bằng giá trị rỗng.
+    """
+    missing: list[str] = []
+    for name, field in structure.model_fields.items():
+        if name in data or not field.is_required():
+            continue
+        annotation = field.annotation
+        if annotation is str:
+            data[name] = ""
+        elif getattr(annotation, "__origin__", None) is list:
+            data[name] = []
+        elif annotation is int:
+            data[name] = 0
+        elif annotation is bool:
+            data[name] = False
+        else:
+            data[name] = None
+        missing.append(name)
+    return missing
+
+
+def _coerce_scalar_fields(data: dict, structure) -> list[str]:
+    """Ép kiểu "mềm" cho field `str`/`list[str]` khi model trả sai kiểu.
+
+    Chỉ đổi **kiểu dữ liệu**, không đổi nội dung: `2024 → "2024"`, `"a" → ["a"]`.
+    Trả danh sách field đã ép để log.
+    """
+    coerced: list[str] = []
+    for name, field in structure.model_fields.items():
+        if name not in data:
+            continue
+        value = data[name]
+        annotation = field.annotation
+        if annotation is str and isinstance(value, (int, float, bool)):
+            data[name] = str(value)
+            coerced.append(name)
+        elif getattr(annotation, "__origin__", None) is list and isinstance(value, str):
+            data[name] = [value]
+            coerced.append(name)
+    return coerced
+
+
+def _parse_structured_text(text: str, structure):
+    """Parse text thành `structure`.
+
+    - Chấp nhận JSON bọc code fence / lẫn văn bản / bị cắt cụt.
+    - **Bù field bắt buộc còn thiếu bằng chuỗi rỗng** để không chặn ingest (dữ liệu model trả
+      vẫn được giữ nguyên, không suy diễn thêm) và log tên field thiếu để biết prompt cần siết.
+    - Ép kiểu mềm (`2024 → "2024"`) khi model trả sai kiểu scalar.
+    Trả None nếu không lấy được JSON object nào hoặc JSON sai kiểu không cứu được.
+    """
+    data = _load_json_lenient(text)
+    if data is None:
+        return None
+    missing = _fill_missing_fields(data, structure)
+    coerced = _coerce_scalar_fields(data, structure)
+    try:
+        result = structure.model_validate(data)
+    except Exception as validation_error:
+        logger.warning(f"[structured] Không validate được {structure.__name__}: {validation_error}")
+        return None
+    if missing:
+        logger.warning(
+            f"[structured] {structure.__name__}: model thiếu {len(missing)} field {missing} → đã bù rỗng"
+        )
+    if coerced:
+        logger.warning(f"[structured] {structure.__name__}: đã ép kiểu field {coerced}")
+    return result
 
 
 def _parse_structured_fallback(response, structure):
