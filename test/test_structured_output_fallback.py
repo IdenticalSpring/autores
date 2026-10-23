@@ -243,6 +243,39 @@ def test_key_points_with_complex_types_coerced_successfully():
     assert "Supply Chain" in result.variables[0]
 
 
+def test_key_points_with_null_fields_and_self_healing():
+    """Model trả null cho các field khoa học không có trong bài báo (theo đúng KEY_POINTS_PROMPT)."""
+    from document_setup.src.schemas.search_papers import KeyPoints
+
+    content = """{
+      "main_topic": "Mobile Application Flow",
+      "background": "Ride-hailing driver modules",
+      "importance": "Crucial for usability",
+      "research_gap": "Lack of UX analysis",
+      "problem": "App crashes and high cognitive load",
+      "objectives": "Analyze UI and improve workflow",
+      "scope": "Driver app only",
+      "methodology": "Empirical case study",
+      "data": "Telemetry and surveys",
+      "analysis": "Descriptive statistics",
+      "results": "Found 3 main bottlenecks",
+      "main_conclusions": "Simplify navigation",
+      "contributions": "Practical guide for developers",
+      "future_directions": "Study rider side",
+      "hypotheses": null,
+      "variables": null,
+      "measurement_items": null,
+      "model_design": null
+    }"""
+    result = llm_module._parse_structured_text(content, KeyPoints)
+    assert isinstance(result, KeyPoints)
+    assert result.main_topic == "Mobile Application Flow"
+    assert result.hypotheses == []
+    assert result.variables == []
+    assert result.model_design == ""
+
+
+
 
 if __name__ == "__main__":
     failures = 0

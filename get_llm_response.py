@@ -291,9 +291,10 @@ def _fill_missing_fields(data: dict, structure) -> list[str]:
 
 
 def _coerce_scalar_fields(data: dict, structure) -> list[str]:
-    """Ép kiểu "mềm" cho field `str`/`list[str]` khi model trả sai kiểu.
+    """Ép kiểu "mềm" cho field `str`/`list[str]` khi model trả sai kiểu hoặc null.
 
     Chỉ đổi **kiểu dữ liệu**, không đổi nội dung:
+    - `None → ""` (nếu str) hoặc `None → []` (nếu list) khi model trả null
     - `2024 → "2024"`
     - `["a", "b"] → "a\nb"` (khi prompt yêu cầu bullet points)
     - `{"approach": "quantitative"} → "- approach: quantitative"`
@@ -303,7 +304,7 @@ def _coerce_scalar_fields(data: dict, structure) -> list[str]:
     """
     coerced: list[str] = []
     for name, field in structure.model_fields.items():
-        if name not in data or data[name] is None:
+        if name not in data:
             continue
         value = data[name]
         annotation = field.annotation
@@ -314,6 +315,22 @@ def _coerce_scalar_fields(data: dict, structure) -> list[str]:
             if len(non_none) == 1:
                 annotation = non_none[0]
                 origin = getattr(annotation, "__origin__", None)
+
+        # Xử lý khi model trả `null` (None) cho field không hỗ trợ None
+        if value is None:
+            if annotation is str:
+                data[name] = ""
+                coerced.append(name)
+            elif origin is list:
+                data[name] = []
+                coerced.append(name)
+            elif annotation is int:
+                data[name] = 0
+                coerced.append(name)
+            elif annotation is bool:
+                data[name] = False
+                coerced.append(name)
+            continue
 
         if annotation is str:
             if isinstance(value, (int, float, bool)):
@@ -356,7 +373,9 @@ def _parse_structured_text(text: str, structure):
     - Chấp nhận JSON bọc code fence / lẫn văn bản / literal newlines / bị cắt cụt / bọc wrapper key.
     - **Bù field bắt buộc còn thiếu bằng chuỗi rỗng** để không chặn ingest (dữ liệu model trả
       vẫn được giữ nguyên, không suy diễn thêm) và log tên field thiếu để biết prompt cần siết.
-    - Ép kiểu mềm (`2024 → "2024"`, `["a"] → "a"`, `[dict] → [str]`) khi model trả sai kiểu scalar/list.
+    - Ép kiểu mềm (`2024 → "2024"`, `["a"] → "a"`, `[dict] → [str]`, `null → ""/[]`) khi model trả sai kiểu.
+    - **Tự sửa lỗi (self-healing)**: nếu vẫn còn field bị ValidationError, tự động gán giá trị an toàn
+      cho các field lỗi đó rồi validate lại để bảo toàn dữ liệu còn lại, không làm sập pipeline.
     Trả None nếu không lấy được JSON object nào hoặc JSON sai kiểu không cứu được.
     """
     data = _load_json_lenient(text)
@@ -368,7 +387,35 @@ def _parse_structured_text(text: str, structure):
     try:
         result = structure.model_validate(data)
     except Exception as validation_error:
-        logger.warning(f"[structured] Không validate được {structure.__name__}: {validation_error}")
+        logger.warning(
+            f"[structured] Không validate được {structure.__name__}: {validation_error} → tự khắc phục field lỗi"
+        )
+        errors_func = getattr(validation_error, "errors", None)
+        if callable(errors_func):
+            try:
+                for err in errors_func():
+                    loc = err.get("loc", ())
+                    if loc:
+                        field_name = str(loc[0])
+                        if field_name in structure.model_fields:
+                            f = structure.model_fields[field_name]
+                            f_annot = f.annotation
+                            f_orig = getattr(f_annot, "__origin__", None)
+                            if f_annot is str:
+                                data[field_name] = ""
+                            elif f_orig is list:
+                                data[field_name] = []
+                            elif f_annot is int:
+                                data[field_name] = 0
+                            elif f_annot is bool:
+                                data[field_name] = False
+                            else:
+                                data[field_name] = None
+                result = structure.model_validate(data)
+                logger.info(f"[structured] {structure.__name__}: tự sửa field lỗi thành công")
+                return result
+            except Exception as second_err:
+                logger.warning(f"[structured] Tự sửa field lỗi thất bại: {second_err}")
         return None
     if missing:
         logger.warning(
