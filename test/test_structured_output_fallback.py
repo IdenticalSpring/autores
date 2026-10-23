@@ -191,6 +191,59 @@ def test_model_name_extraction():
     assert llm_module._model_name(types.SimpleNamespace()) == ""
 
 
+def test_literal_newlines_in_json_are_parsed():
+    """Gemini hay trả literal newline trong chuỗi khi prompt bảo bullet points."""
+    content = '{\n  "main_topic": "Topic Line 1\nTopic Line 2",\n  "importance": "Imp"\n}'
+    result = llm_module._parse_structured_text(content, DummySchema)
+    assert isinstance(result, DummySchema)
+    assert "Line 2" in result.main_topic
+
+
+def test_trailing_commas_in_json_are_parsed():
+    content = '{"main_topic": "T", "importance": "I",}'
+    result = llm_module._parse_structured_text(content, DummySchema)
+    assert isinstance(result, DummySchema)
+    assert result.main_topic == "T"
+
+
+def test_json_array_is_parsed():
+    content = '[{"main_topic": "Arr", "importance": "Imp"}]'
+    result = llm_module._parse_structured_text(content, DummySchema)
+    assert isinstance(result, DummySchema)
+    assert result.main_topic == "Arr"
+
+
+def test_wrapped_root_dict_is_unwrapped():
+    content = '{"KeyPoints": {"main_topic": "Wrapped", "importance": "Imp"}}'
+    result = llm_module._parse_structured_text(content, DummySchema)
+    assert isinstance(result, DummySchema)
+    assert result.main_topic == "Wrapped"
+
+
+def test_key_points_with_complex_types_coerced_successfully():
+    """KeyPoints với variables list[dict], methodology dict, importance list[str]."""
+    from document_setup.src.schemas.search_papers import KeyPoints
+
+    content = """{
+      "main_topic": "Green SCM",
+      "background": "2024",
+      "importance": ["Advantage 1", "Advantage 2"],
+      "methodology": {"approach": "quantitative", "model": "SEM"},
+      "variables": [
+        {"name": "Supply Chain", "role": "independent", "description": "desc"}
+      ]
+    }"""
+    result = llm_module._parse_structured_text(content, KeyPoints)
+    assert isinstance(result, KeyPoints)
+    assert result.main_topic == "Green SCM"
+    assert "Advantage 1" in result.importance and "Advantage 2" in result.importance
+    assert "quantitative" in result.methodology
+    assert isinstance(result.variables, list)
+    assert len(result.variables) == 1
+    assert "Supply Chain" in result.variables[0]
+
+
+
 if __name__ == "__main__":
     failures = 0
     checks = [(name, func) for name, func in sorted(globals().items()) if name.startswith("test_")]
