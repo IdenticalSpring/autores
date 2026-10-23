@@ -1,4 +1,5 @@
 import asyncio
+import json
 import httpx
 import openai
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -164,6 +165,24 @@ def _strip_code_fence(text: str) -> str:
     return cleaned.strip()
 
 
+def _parse_structured_text(text: str, structure):
+    """Parse text thành `structure`; trả None nếu không parse được."""
+    cleaned = _strip_code_fence(text or "")
+    if not cleaned:
+        return None
+    try:
+        return structure.model_validate_json(cleaned)
+    except Exception:
+        pass
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if 0 <= start < end:
+        try:
+            return structure.model_validate_json(cleaned[start:end + 1])
+        except Exception:
+            return None
+    return None
+
+
 def _parse_structured_fallback(response, structure):
     """Fallback khi `parsed` rỗng: parse JSON thô của model vào schema.
 
@@ -171,20 +190,39 @@ def _parse_structured_fallback(response, structure):
     parse được (model không hỗ trợ response_schema / trả kèm code fence) ⇒ `parsed=None`.
     Hàm này chỉ parse lại **những gì model đã trả**, không bịa dữ liệu.
     """
-    text = _strip_code_fence(_raw_message_text(response))
-    if not text:
-        return None
-    try:
-        return structure.model_validate_json(text)
-    except Exception:
-        pass
-    start, end = text.find("{"), text.rfind("}")
-    if 0 <= start < end:
-        try:
-            return structure.model_validate_json(text[start:end + 1])
-        except Exception:
-            return None
-    return None
+    return _parse_structured_text(_raw_message_text(response), structure)
+
+
+def _finish_reason(response) -> str:
+    """Lấy finish_reason (length/safety/stop...) để chẩn đoán vì sao output rỗng."""
+    raw = response.get("raw") if isinstance(response, dict) else None
+    meta = getattr(raw, "response_metadata", None) or {}
+    return str(meta.get("finish_reason") or meta.get("finishReason") or "")
+
+
+async def _plain_json_fallback(llm, messages, structure):
+    """Gọi lại model ở chế độ plain-text, yêu cầu trả JSON theo schema rồi parse.
+
+    Dùng cho model/proxy không hỗ trợ `with_structured_output` (parsed luôn None).
+    Trả (result|None, input_tokens, output_tokens, raw_text).
+    """
+    schema_text = json.dumps(structure.model_json_schema(), ensure_ascii=False)
+    instruction = HumanMessage(
+        content=(
+            "Return ONLY valid JSON (no markdown, no code fence, no commentary) "
+            "that matches this JSON Schema:\n" + schema_text
+        )
+    )
+    response = await llm.ainvoke(messages + [instruction])
+    content = getattr(response, "content", "")
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in content
+        )
+    raw_text = content if isinstance(content, str) else ""
+    result = _parse_structured_text(raw_text, structure)
+    input_tokens, output_tokens = _get_usage_tokens({"raw": response})
+    return result, input_tokens, output_tokens, raw_text
 
 
 async def get_answer_with_schema(
@@ -221,12 +259,35 @@ async def get_answer_with_schema(
             response = await structured_llm.ainvoke(input=messages)
             result = response.get("parsed") if isinstance(response, dict) else None
             if result is None:
-                # Fallback: model có thể trả JSON nhưng LangChain không parse được
-                # (vd model không hỗ trợ response_schema). Chỉ parse lại raw content.
+                # Fallback 1: parse lại raw content (JSON bọc code fence / kèm văn bản)
                 result = _parse_structured_fallback(response, structure)
                 if result is not None:
                     logger.warning(f"[{_id}] {schema_name}: parsed rỗng, đã parse lại từ raw content")
             if result is None:
+                raw_text = _raw_message_text(response)
+                finish_reason = _finish_reason(response)
+                if attempt == 0:
+                    # Fallback 2: gọi plain-text + yêu cầu JSON theo schema (1 lần, tránh nhân chi phí)
+                    logger.warning(
+                        f"[{_id}] {schema_name}: parsed rỗng (finish_reason='{finish_reason}', "
+                        f"raw_len={len(raw_text)}). Thử fallback plain-json..."
+                    )
+                    fb_result, fb_in, fb_out, fb_text = await _plain_json_fallback(llm, messages, structure)
+                    input_tokens += fb_in
+                    output_tokens += fb_out
+                    if fb_result is not None:
+                        logger.warning(f"[{_id}] {schema_name}: fallback plain-json thành công")
+                        return None, True, fb_result, input_tokens, output_tokens
+                    logger.warning(
+                        f"[{_id}] {schema_name}: fallback plain-json cũng rỗng "
+                        f"(raw_len={len(fb_text)}, preview={fb_text[:200]!r})"
+                    )
+                else:
+                    logger.warning(
+                        f"[{_id}] {schema_name}: parsed rỗng lần {attempt + 1}/3 "
+                        f"(finish_reason='{finish_reason}', raw_len={len(raw_text)}, "
+                        f"preview={raw_text[:200]!r})"
+                    )
                 raise ValueError(f"Structured output was empty for schema {schema_name}")
             curr_input_tokens, curr_output_tokens = _get_usage_tokens(response)
             input_tokens += curr_input_tokens
