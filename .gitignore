@@ -78,6 +78,25 @@ taskfe.md
 docs/
 tasks/
 
+# ------------------------------------------------------------------------------
+# Tài liệu trao đổi với BE / team AI (không push lên git)
+# ------------------------------------------------------------------------------
+EXECUTION_ORDER_10_TASKS.md
+DEPLOY_AND_REPORT_RUNBOOK.md
+HANDOFF_BE_10_TASKS.md
+HANDOFF_TO_BE_AFTER_AI_RELEASE.md
+QUESTIONS_FOR_AI_TEAM.md
+QUESTIONS_FOR_AI_TEAM_ROUND2.md
+AI_TICKET_REQUEST.md
+AI_TICKET_RESPONSE.md
+AI_TICKET_ACK.md
+AI_TICKET_CLOSURE.md
+AI_TEAM_ANSWERS_TO_BE_QUESTIONS.md
+AI_TEAM_ANSWERS_ROUND2.md
+AI_SIDE_BUGS_FOUND.md
+AI_FIXES_IMPLEMENTATION_REPORT.md
+AI_RESPONSE_ADMIN_DOCUMENTS_INCIDENT.md
+
 # ==============================================================================
 # AI Assistants, Agent Rules & Task Tracking
 # ==============================================================================

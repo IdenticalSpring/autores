@@ -127,6 +127,92 @@ class Analyzer():
         output_tokens = [result[2] for result in results]
         return condition_results, sum(input_tokens), sum(output_tokens)
 
+    def _build_analyze_log(
+        self,
+        message: dict,
+        data_dict: dict,
+        variables_data: list[dict],
+        generated_files: dict,
+        result_html: str,
+    ) -> str:
+        """Build the plain-text analysis summary (`analyze_log`).
+
+        The text is assembled ONLY from data actually produced by the graph
+        (logs / execution log / variables / generated files). Anything not
+        available is reported as missing instead of being invented.
+        """
+        # Inspect the dataset without building a DataFrame (keeps this helper
+        # dependency-free and cheap for large payloads).
+        columns = len(data_dict) if isinstance(data_dict, dict) else 0
+        column_lengths = (
+            [len(values) for values in data_dict.values() if isinstance(values, (list, tuple, set))]
+            if isinstance(data_dict, dict)
+            else []
+        )
+        rows = max(column_lengths) if column_lengths else 0
+
+        variables = message.get("current_variables") or variables_data or []
+        variable_codes: list[str] = []
+        for variable in variables:
+            if isinstance(variable, dict):
+                code = variable.get("code") or variable.get("name")
+            else:
+                code = getattr(variable, "code", None) or getattr(variable, "name", None)
+            if code:
+                variable_codes.append(str(code))
+
+        raw_logs = message.get("logs") or []
+        if isinstance(raw_logs, str):
+            raw_logs = [raw_logs]
+        log_lines = [str(line).strip() for line in raw_logs if str(line).strip()]
+
+        execution_log = message.get("execution_log")
+        if execution_log is None:
+            execution_text = ""
+        elif isinstance(execution_log, str):
+            execution_text = execution_log
+        else:
+            execution_text = json.dumps(execution_log, ensure_ascii=False, default=str)
+
+        warning_markers = ("WARNING", "CẢNH BÁO", "ERROR", "FAILED")
+        warning_lines = [
+            line for line in log_lines if any(marker in line.upper() for marker in warning_markers)
+        ]
+
+        file_names = [name for name in generated_files if name != "file_descriptions"]
+
+        summary_parts = [
+            f"Dataset: {rows} rows x {columns} columns.",
+            (
+                f"Variables used in the analysis ({len(variable_codes)}): "
+                f"{', '.join(variable_codes) if variable_codes else 'not reported by the graph'}."
+            ),
+        ]
+
+        if log_lines:
+            summary_parts.append("Analysis results (latest steps):")
+            summary_parts.extend(f"- {line}" for line in log_lines[-40:])
+        elif execution_text:
+            summary_parts.append("Analysis results (execution log):")
+            summary_parts.append(execution_text[:3000])
+        else:
+            summary_parts.append("Analysis results: the graph did not return log entries.")
+
+        if file_names:
+            summary_parts.append(f"Generated artefacts: {', '.join(file_names)}.")
+        if result_html:
+            summary_parts.append("Full HTML report was uploaded successfully.")
+        else:
+            summary_parts.append("Full HTML report upload failed; only the artefacts above are available.")
+
+        if warning_lines:
+            summary_parts.append("Warnings:")
+            summary_parts.extend(f"- {line}" for line in warning_lines[:10])
+        else:
+            summary_parts.append("Warnings: none reported by the analysis tools.")
+
+        return "\n".join(summary_parts)
+
     async def run_graph(
             self,
             document_id: str,
@@ -434,15 +520,27 @@ class Analyzer():
                     public_url = ""
                 
                 # Remove the redundant embedding loop - no longer needed
-                
+
+                analyze_log = self._build_analyze_log(
+                    message=message,
+                    data_dict=data_dict,
+                    variables_data=variables_data,
+                    generated_files=generated_files,
+                    result_html=public_url,
+                )
+
                 return True, {
-                    "current_variables": [],
+                    "current_variables": [
+                        variable.model_dump() if hasattr(variable, "model_dump") else dict(variable)
+                        for variable in (message.get("current_variables") or [])
+                    ],
                     "generated_files": {
                         **generated_files,
                         "file_descriptions": json.dumps(file_descriptions, ensure_ascii=False),
                     },
                     "result_html": public_url,
-                    "analyze_log": "Done",
+                    "upload_failed": not bool(public_url),
+                    "analyze_log": analyze_log,
                     "detailed_logs": message["detailed_report"],
                     "input_tokens": message["input_tokens"],
                     "output_tokens": message["output_tokens"],

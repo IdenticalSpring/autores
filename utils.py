@@ -312,9 +312,9 @@ async def send_health_check(
     topic: str = ""
 ):
     if id and id != "admin":
-        global _REDIS_CLIENT
-        if _REDIS_CLIENT:
-            _REDIS_CLIENT = await get_redis_client()
+        # get_redis_client() is a SYNC factory returning an ASYNC Redis client and it
+        # initialises the client on first use. Do not `await` it (previous code did).
+        redis_client = get_redis_client()
         url = f"http://{settings.REDIS_HOST}:4002/health-check/{id}"
         headers = {
             "accept": "application/json",
@@ -331,17 +331,23 @@ async def send_health_check(
         }
         logger.info(f"{event_type} - {topic} - {id} - {data}")
         key = f"AI_STATUS:{id}"
-        status_bytes = await _REDIS_CLIENT.get(key)
-        if status_bytes is not None:
-            status = json.loads(status_bytes)
-            if status["processStatus"] != status:
-                limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-                transport = httpx.AsyncHTTPTransport(retries=3) 
-                async with httpx.AsyncClient(limits=limits, transport=transport, timeout=(3.0, 5.0)) as client:
-                    try:
-                        response = await client.put(url, headers=headers, json=data)
-                        response.raise_for_status()
-                    except Exception as e:
-                        logger.error(AIERROR(600, str(e)))
-                        pass
-        await _REDIS_CLIENT.set(key, json.dumps(data), ex=ttl)
+
+        # Only call the BE webhook when processStatus actually changed.
+        previous_status = None
+        try:
+            status_bytes = await redis_client.get(key)
+            if status_bytes is not None:
+                previous_status = json.loads(status_bytes).get("processStatus")
+        except Exception as read_error:
+            logger.error(f"[health-check] Cannot read previous status for {key}: {read_error}")
+
+        if previous_status != status:
+            limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            transport = httpx.AsyncHTTPTransport(retries=3)
+            async with httpx.AsyncClient(limits=limits, transport=transport, timeout=(3.0, 5.0)) as client:
+                try:
+                    response = await client.put(url, headers=headers, json=data)
+                    response.raise_for_status()
+                except Exception as e:
+                    logger.error(AIERROR(600, str(e)))
+        await redis_client.set(key, json.dumps(data), ex=ttl)

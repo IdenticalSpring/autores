@@ -8,6 +8,8 @@ import time
 import traceback
 import uuid
 import urllib
+import urllib.error
+import urllib.request
 
 from data_analysis.src.modules.analyzer import Analyzer
 
@@ -139,6 +141,36 @@ class WriteSectionEventListener(BaseAsyncListener):
         message["index"] = write_section_end
         message["change_section"] = True
         await self.send_message(producer, topic, message)
+
+    async def _delete_qdrant_collection(self, collection_name: str, _id: str) -> bool:
+        """Delete one Qdrant collection (blocking HTTP call runs in a thread).
+
+        Returns True when the collection is deleted or was already absent
+        (HTTP 404 - DELETE is idempotent). Returns False on any other failure.
+        """
+
+        def _delete() -> bool:
+            url = f"{settings.QDRANT_URL}/collections/{collection_name}"
+            delete_request = urllib.request.Request(url, method="DELETE")
+            try:
+                with urllib.request.urlopen(delete_request, timeout=30) as response:
+                    if response.status == 200:
+                        logger.info(f"[{_id}] Successfully deleted collection: {collection_name}")
+                        return True
+                    logger.error(f"[{_id}] Error deleting {collection_name}: Status code {response.status}")
+                    return False
+            except urllib.error.HTTPError as http_error:
+                if http_error.code == 404:
+                    logger.info(f"[{_id}] Collection already absent: {collection_name}")
+                    return True
+                logger.error(f"[{_id}] Error deleting {collection_name}: HTTP {http_error.code}")
+                return False
+            except Exception as delete_error:
+                logger.error(f"[{_id}] Error deleting {collection_name}: {delete_error}")
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _delete)
 
     async def _handle_write_section_event(self, topic, value_str):
         start_time = time.time()
@@ -765,29 +797,48 @@ class WriteSectionEventListener(BaseAsyncListener):
                 try:
                     user_docs_collection = self.mongo_client["user_documents"]
                     user_refs = user_docs_collection["reports_refs"]
-                    for doc_id in document_id:
-                        try:
-                            await user_refs.find_one_and_delete({"_id": document_id})
-                        except Exception:
-                            pass
-                        url = f"{settings.QDRANT_URL}/collections/{document_id}"
-                        request = urllib.request.Request(url, method='DELETE')
-                        with urllib.request.urlopen(request) as response:
-                            if response.status == 200:
-                                logger.info(f"[{_id}] Successfully deleted collection: {document_id}")
-                            else:
-                                logger.info(f"[{_id}] Error deleting {document_id}: Status code {response.status}")
-                        url = f"{settings.QDRANT_URL}/collections/{document_id}_user"
-                        request = urllib.request.Request(url, method='DELETE')
-                        with urllib.request.urlopen(request) as response:
-                            if response.status == 200:
-                                logger.info(f"[{_id}] Successfully deleted collection: {document_id}_user")
-                            else:
-                                logger.info(f"[{_id}] Error deleting {document_id}_user: Status code {response.status}")
 
-                    [self.clean_up(id) for id in thread_id]
-                    logger.info(f'[{_id}] SEND: {message}')
-                    task_success = True
+                    # Best-effort: xoá lần lượt TẤT CẢ document_id, không dừng giữa đường.
+                    failed_ids: list[str] = []
+                    for doc_id in document_id:
+                        doc_failed = False
+
+                        # 1) Mongo: reports_refs theo từng document
+                        try:
+                            await user_refs.find_one_and_delete({"_id": doc_id})
+                        except Exception as mongo_error:
+                            doc_failed = True
+                            logger.error(f"[{_id}] Failed to delete reports_refs for {doc_id}: {mongo_error}")
+
+                        # 2) Qdrant: {doc_id} và {doc_id}_user
+                        if not await self._delete_qdrant_collection(f"{doc_id}", _id):
+                            doc_failed = True
+                        if not await self._delete_qdrant_collection(f"{doc_id}_user", _id):
+                            doc_failed = True
+
+                        if doc_failed:
+                            failed_ids.append(doc_id)
+
+                    # 3) Dọn checkpoint (Redis + BotGraph) cho từng thread_id
+                    cleanup_results = await asyncio.gather(
+                        *(self.clean_up(thread_id_value) for thread_id_value in thread_id),
+                        return_exceptions=True,
+                    )
+                    for thread_id_value, cleanup_result in zip(thread_id, cleanup_results):
+                        if isinstance(cleanup_result, BaseException):
+                            logger.error(
+                                f"[{_id}] Failed to clean up checkpoint for thread {thread_id_value}: {cleanup_result}"
+                            )
+
+                    if failed_ids:
+                        message["error_code"] = WriteSectionError.DELETE_REPORT
+                        message["failed_ids"] = failed_ids
+                        message["error"] = f"Failed to delete data for document ids: {', '.join(failed_ids)}"
+                        task_success = False
+                        logger.error(f"[{_id}] DELETE_REPORT partial failure: {failed_ids}")
+                    else:
+                        logger.info(f'[{_id}] SEND: {message}')
+                        task_success = True
                 except AIERROR as e:
                     logger.error(f"[{_id}] LLM failed for document_id: {document_id} - event {event_type}")
                     message["error_code"] = e.status_code
@@ -1038,6 +1089,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                     logger.error(traceback.format_exc())
 
         elif event_type == WriteEvent.CHUYEN_DE_3:
+            # write_phase tracks which phase is running so that errors are mapped
+            # to the correct error code (analyzer phase -> 631, write phase -> 635).
+            # Do NOT reuse has_finished for this: it is reset before the write phase.
+            write_phase = False
             try:
                 model_id = value["model_id"]
                 conv_id = value.get("conv_id", "")
@@ -1186,7 +1241,16 @@ class WriteSectionEventListener(BaseAsyncListener):
                         logger.info(f'[{_id}] SEND: CHUYEN_DE_3 - Process input')
                     if has_finished or write_resume_error or resume_chapter:
                         if has_finished:
-                            unused_field = ["analyze_log", "generated_files", "current_variables", "detailed_logs", "result_html"]
+                            unused_field = [
+                                "analyze_log",
+                                "generated_files",
+                                "current_variables",
+                                "detailed_logs",
+                                "result_html",
+                                # upload_failed chỉ có nghĩa khi result_html được trả về;
+                                # với chuyen_de_3 các field phân tích đã bị bỏ => bỏ luôn cờ này.
+                                "upload_failed",
+                            ]
                             for field in unused_field:
                                 if field in message:
                                     del message[field]
@@ -1200,6 +1264,7 @@ class WriteSectionEventListener(BaseAsyncListener):
                             detailed_logs = doc_config.get("detailedLogs", [])
                             generated_files = doc_config.get("generatedFiles", {})
                         start_write = time.time()
+                        write_phase = True
                         has_finished = False
                         task_success = False
                         inp = {
@@ -1311,7 +1376,7 @@ class WriteSectionEventListener(BaseAsyncListener):
                     
                 except Exception as e:
                     logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")
-                    message["error_code"] = WriteSectionError.CHUYEN_DE_3 if has_finished else WriteSectionError.ANALYZER
+                    message["error_code"] = WriteSectionError.CHUYEN_DE_3 if write_phase else WriteSectionError.ANALYZER
                     message["error"] = str(e)
                     logger.error(traceback.format_exc())
         elif event_type == WriteEvent.COMMENT_DATA:

@@ -40,6 +40,12 @@ class DocumentSetupEventListener(BaseAsyncListener):
         value_str = record.value
         value = json.loads(value_str)
         topic = record.topic
+        # response_topic phải có giá trị TRƯỚC try: nếu lỗi xảy ra sớm, BE vẫn phải nhận response
+        response_topic = (
+            topics.DOCUMENT_SETUP_RESPONSE_LOCAL
+            if topic == topics.DOCUMENT_SETUP_REQUEST_LOCAL
+            else topics.DOCUMENT_SETUP_RESPONSE
+        )
         try:
             match topic:
                 case topics.DOCUMENT_SETUP_REQUEST:
@@ -61,10 +67,10 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 "error_code": ERROR_DICT.get(value["event_type"]),
                 "error": "Time out",
             }
-            if "document_id" in value:
-                message.update({"document_id": value["document_id"]})
-            if "user_id" in value:
-                message.update({"user_id": value["user_id"]})
+            # echo ĐỦ identifier (trước đây thiếu session_id/conv_id/data_id)
+            for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
+                if identifier in value:
+                    message[identifier] = value[identifier]
 
             if "document_id" in value:
                 _id = value["document_id"]
@@ -74,6 +80,26 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 _id = "admin"
             logger.error(f"[{_id}] Task timed out for document_id: {value['event_type']}")
             await self._finalize_task(None, False, _id, producer, response_topic, message, value["event_type"], True)
+        except Exception as e:
+            # Bắt buộc: KHÔNG được để message rơi vào im lặng (BE chỉ thấy timeout).
+            # Mọi exception thoát khỏi handler đều phải publish 1 response lỗi có đủ identifier.
+            logger.error(f"[{value.get('document_id') or value.get('conv_id') or 'admin'}] "
+                         f"Unhandled error for event {value.get('event_type')}: {e}")
+            logger.error(traceback.format_exc())
+            try:
+                producer = await get_producer()
+                _id = value.get("document_id") or value.get("conv_id") or "admin"
+                message = {
+                    "event_type": value.get("event_type", ""),
+                    "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
+                    "error": str(e),
+                }
+                for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
+                    if identifier in value:
+                        message[identifier] = value[identifier]
+                await self._finalize_task(None, False, _id, producer, response_topic, message, message["event_type"])
+            except Exception as publish_error:
+                logger.error(f"Failed to publish error response for {value.get('event_type')}: {publish_error}")
                 
     async def _handle_document_setup_event(self, topic, value_str, timeout=None):
         start_time = time.time()
@@ -93,14 +119,36 @@ class DocumentSetupEventListener(BaseAsyncListener):
             _id = "admin"
         task_success = False
         producer = await get_producer()
+        # Echo identifier NGAY TỪ ĐẦU để MỌI response (kể cả lỗi 603/604/6xx) đều
+        # correlate được job của BE. Trước đây message chỉ có event_type nên BE
+        # không map được (bug đã nêu ở vòng 2).
+        identifiers = ("user_id", "document_id", "session_id", "conv_id", "data_id", "model_id")
         try:
             event_type = value["event_type"]
             message = {"event_type": event_type}
+            for identifier in identifiers:
+                if identifier in value:
+                    message[identifier] = value[identifier]
             if "model_id" in value:
                 llm_key, db_key, search_web_key = await self.get_key(value["model_id"])
         except KeyError as e:
-            message = {"error_code": Error.INVALID_PARAMS, "error": f"Missing field '{str(e)}'"}
-            await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, "")
+            message = {"event_type": value.get("event_type", ""), "error_code": Error.INVALID_PARAMS,
+                       "error": f"Missing field '{str(e)}'"}
+            for identifier in identifiers:
+                if identifier in value:
+                    message[identifier] = value[identifier]
+            await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, message["event_type"])
+            return
+        except Exception as e:
+            # Không được im lặng: lỗi khi khởi tạo (vd Redis lấy AI_KEY) vẫn phải publish response
+            logger.error(f"[{_id}] Cannot initialize event {value.get('event_type')}: {e}")
+            logger.error(traceback.format_exc())
+            message = {"event_type": value.get("event_type", ""), "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
+                       "error": f"Cannot initialize event: {e}"}
+            for identifier in identifiers:
+                if identifier in value:
+                    message[identifier] = value[identifier]
+            await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, message["event_type"])
             return
         # if "user_id" in value and "document_id" in value:
         #     if value["user_id"] != "" and value["document_id"] != "":
@@ -1242,7 +1290,14 @@ class DocumentSetupEventListener(BaseAsyncListener):
 
         elif event_type == DocumentSetupEvent.ADMIN_DOCUMENTS:
             try:
-                docs = value["documents"]
+                # Hỗ trợ cả 2 dạng: {"documents": [...]}; nếu thiếu thì báo rõ thay vì KeyError mơ hồ
+                if "documents" not in value and "documents_urls" in value:
+                    docs = [{"url": url, "source": "ADMIN", "title": str(url).split("/")[-1]}
+                            for url in value["documents_urls"]]
+                else:
+                    docs = value["documents"]
+                    # Mỗi item phải có url (bucket/key); nếu BE chỉ gửi `source` dạng path,
+                    # _normalize_admin_doc() sẽ dùng làm url và đặt source = "ADMIN".
 
                 # Type validation
                 self.field_validate_list_dict({"docs": docs})
