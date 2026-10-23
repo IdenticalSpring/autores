@@ -116,6 +116,20 @@ def test_plain_json_fallback_empty_content():
     assert result is None and text == ""
 
 
+def test_structured_unsupported_cache_flow():
+    llm = types.SimpleNamespace(model_name="test-model-unsupported")
+    assert llm_module._is_structured_unsupported(llm) is False
+    assert llm_module._mark_structured_unsupported(llm) is True   # lần đầu: đánh dấu
+    assert llm_module._is_structured_unsupported(llm) is True
+    assert llm_module._mark_structured_unsupported(llm) is False  # đã có: không đánh dấu lại
+
+
+def test_model_name_extraction():
+    assert llm_module._model_name(types.SimpleNamespace(model_name="m1")) == "m1"
+    assert llm_module._model_name(types.SimpleNamespace(model="m2")) == "m2"
+    assert llm_module._model_name(types.SimpleNamespace()) == ""
+
+
 if __name__ == "__main__":
     failures = 0
     checks = [(name, func) for name, func in sorted(globals().items()) if name.startswith("test_")]
