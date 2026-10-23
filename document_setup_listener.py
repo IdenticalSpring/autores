@@ -1299,6 +1299,10 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     # Mỗi item phải có url (bucket/key); nếu BE chỉ gửi `source` dạng path,
                     # _normalize_admin_doc() sẽ dùng làm url và đặt source = "ADMIN".
 
+                # Phải truyền model_id của BE xuống processor, nếu không sẽ dùng default
+                # "gpt-4.1-mini" (OpenAI) với key rỗng -> lỗi 401 dù model_id=localhost.
+                model_id = value["model_id"]
+
                 # Type validation
                 self.field_validate_list_dict({"docs": docs})
 
@@ -1316,7 +1320,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 
             if "error_code" not in message:
                 try:
-                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000))
+                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000), model_id=model_id)
                     processed_docs, input_tokens, output_tokens, embeddings_model = await module.ingest_admin_docs(docs, self.mongo_client)
                     message["processed_docs"] = processed_docs
                     message["input_tokens"] = input_tokens
@@ -1358,6 +1362,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message[identifier] = value[identifier]
             try:
                 docs = value["documents_urls"]
+                model_id = value["model_id"]
                 # Type validation
                 self.field_validate_list_str({"documents_urls": docs})
                 # Format validation: mỗi phần tử bắt buộc là "bucket/key"
@@ -1380,7 +1385,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 
             if "error_code" not in message:
                 try:
-                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000))
+                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000), model_id=model_id)
                     processed_docs, embed_tokens, embeddings_model = await module.ingest_user_guide_docs(docs)
                     message["processed_docs"] = processed_docs
                     message["input_tokens"] = 0
@@ -1515,7 +1520,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 
             if "error_code" not in message:
                 try:
-                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000), language, document_id)
+                    module = VectorDBProcessor(llm_key, db_key, MAX_TOKENS_DICT.get(event_type, 10000), language, document_id, value["model_id"])
                     embed_tokens, embeddings_model = await module.embed_user_docs(self.mongo_client, docs)
                     logger.info("Finish embed")
                     message["input_tokens"] = 0

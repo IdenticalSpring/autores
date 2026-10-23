@@ -64,6 +64,17 @@ def test_normalize_admin_doc_keeps_label_source_and_url():
 # --------------------------------------------------------------------------- #
 # 2. Không có document hợp lệ ⇒ 618 (trước đây trả processed_docs: [] im lặng)
 # --------------------------------------------------------------------------- #
+def test_all_vector_processor_calls_pass_model_id():
+    """Không được bỏ model_id: thiếu ⇒ processor dùng default gpt-4.1-mini ⇒ lỗi 401."""
+    source = (ROOT / "document_setup_listener.py").read_text(encoding="utf-8")
+    missing = [
+        line.strip()
+        for line in source.splitlines()
+        if "VectorDBProcessor(" in line and "model_id" not in line
+    ]
+    assert missing == [], "Thiếu model_id khi tạo VectorDBProcessor: " + str(missing)
+
+
 def test_ingest_admin_docs_raises_618_when_no_valid_docs():
     processor = object.__new__(VectorDBProcessor)
     processor.input_tokens = 0
