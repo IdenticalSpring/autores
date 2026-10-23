@@ -13,7 +13,7 @@ class PaperAbstract(BaseModel):
 class PublicationInfo(BaseModel):
     authors: list[str] = Field(["Authors"], description="List of authors")
     title: str = Field("Unknown", description="Publication title")
-    year: int | str = Field(None, description="Year of publication")
+    year: str = Field(None, description="Year of publication")
     journal: str = Field("Unknown", description="Journal name")
     publisher: str = Field("Unknown", description="Publisher name")
     language: str = Field("Unknown", description="Primary language use in the paper (example: en, vi, vn, ...)")
