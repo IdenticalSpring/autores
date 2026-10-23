@@ -69,6 +69,53 @@ def test_raw_text_helper_handles_str_and_list():
     assert llm_module._raw_message_text({"raw": None}) == ""
 
 
+def test_parse_structured_text_direct():
+    assert (
+        llm_module._parse_structured_text('{"main_topic": "T", "importance": "I"}', DummySchema).main_topic
+        == "T"
+    )
+    assert llm_module._parse_structured_text("", DummySchema) is None
+    assert llm_module._parse_structured_text("garbage", DummySchema) is None
+
+
+def test_finish_reason_extraction():
+    response = response_with("x")
+    response["raw"].response_metadata = {"finish_reason": "length"}
+    assert llm_module._finish_reason(response) == "length"
+    assert llm_module._finish_reason({"raw": None}) == ""
+
+
+class FakeLlm:
+    def __init__(self, content):
+        self.content = content
+        self.calls = 0
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        return types.SimpleNamespace(
+            content=self.content,
+            usage_metadata={"input_tokens": 11, "output_tokens": 7},
+        )
+
+
+def test_plain_json_fallback_success():
+    import asyncio
+
+    fake = FakeLlm('{"main_topic": "fallback", "importance": "ok"}')
+    result, in_tok, out_tok, text = asyncio.run(llm_module._plain_json_fallback(fake, [], DummySchema))
+    assert result is not None and result.main_topic == "fallback"
+    assert (in_tok, out_tok) == (11, 7)
+    assert fake.calls == 1 and "fallback" in text
+
+
+def test_plain_json_fallback_empty_content():
+    import asyncio
+
+    fake = FakeLlm("")
+    result, _, _, text = asyncio.run(llm_module._plain_json_fallback(fake, [], DummySchema))
+    assert result is None and text == ""
+
+
 if __name__ == "__main__":
     failures = 0
     checks = [(name, func) for name, func in sorted(globals().items()) if name.startswith("test_")]
