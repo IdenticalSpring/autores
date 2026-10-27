@@ -23,9 +23,9 @@ if [ ! -f .env ]; then
     cp .env.example .env
 fi
 
-# 3. Khởi động qua deploy.sh
+# 3. Khởi động qua deploy.sh (chuẩn: build image + up docker-compose.yaml + health)
 if [[ $# -eq 0 ]]; then
-    exec ./deploy.sh --all
+    exec ./deploy.sh all
 else
     exec ./deploy.sh "$@"
 fi

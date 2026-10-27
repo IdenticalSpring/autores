@@ -1272,8 +1272,12 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 try:
                     module = SearchJournal(self.redis)
                     await module.setup(last_updated)
-                    message = {"message": "Finish crawling ISSN and Q information"}
-                    logger.error(f'[{_id}] SEND: ', message)
+                    # KHÔNG được gán lại `message`: nếu ghi đè sẽ mất identifier
+                    # (event_type/user_id/document_id/session_id) ⇒ BE không ghép được
+                    # request ⇒ timeout 300s dù AI đã crawl xong.
+                    message["message"] = "Finish crawling ISSN and Q information"
+                    message["last_updated"] = last_updated
+                    logger.info(f'[{_id}] SEND: ', message)
                     
                     task_success = True
                 except AIERROR as e:

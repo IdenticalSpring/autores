@@ -1,3 +1,9 @@
+# ==============================================================================
+#  LOCAL BOOTSTRAP ONLY — Hạ tầng chạy local/dev.
+#  KHÔNG dùng file này làm compose chuẩn cho production.
+#  Compose chuẩn của app: docker-compose.yaml (1 container autoresearching-ai-dev).
+#  Trên VPS production, hạ tầng do công ty cấp sẵn (Kafka/Redis/Mongo/Qdrant/MinIO).
+# ==============================================================================
 services:
   # ==============================================================================
   # 1. APACHE KAFKA (KRaft mode - Không cần Zookeeper)

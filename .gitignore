@@ -96,7 +96,13 @@ AI_TEAM_ANSWERS_ROUND2.md
 AI_SIDE_BUGS_FOUND.md
 AI_FIXES_IMPLEMENTATION_REPORT.md
 AI_RESPONSE_ADMIN_DOCUMENTS_INCIDENT.md
+AI_RESPONSE_GET_JOURNALS_INCIDENT.md
 HANDOFF_NEXT_AI.md
+
+# ==============================================================================
+# Cleanup snapshot (chỉ dùng local, chứa trạng thái runtime)
+# ==============================================================================
+.cleanup_snapshot/
 
 # ==============================================================================
 # AI Assistants, Agent Rules & Task Tracking

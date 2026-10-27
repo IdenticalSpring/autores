@@ -12,6 +12,11 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from document_setup.src.configs.app import settings
 from event_type import EnhancementEvent
 import topics
+from scripts._smoke_topics import model_id as smoke_model_id, topic
+
+# Mặc định topic production (khớp docker-compose.yaml -> main.py). `--local` để dùng topic *_local.
+REQ_TOPIC = topic(topics.ENHANCEMENT_REQUEST_LOCAL, topics.ENHANCEMENT_REQUEST)
+RES_TOPIC = topic(topics.ENHANCEMENT_RESPONSE_LOCAL, topics.ENHANCEMENT_RESPONSE)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -24,7 +29,7 @@ async def run_test():
 
     request_payload = {
         "event_type": EnhancementEvent.AI_IN_DOC.value,
-        "model_id": "localhost",
+        "model_id": smoke_model_id(),
         "user_id": user_id,
         "document_id": doc_id,
         "section_id": section_id,
@@ -43,14 +48,14 @@ async def run_test():
     logger.info("==================================================================")
     logger.info("🚀 BẮT ĐẦU SMOKE TEST KAFKA CHO SERVICE: ENHANCEMENT (ai_in_doc)")
     logger.info(f"   Kafka Broker: {settings.KAFKA}")
-    logger.info(f"   Request Topic: {topics.ENHANCEMENT_REQUEST_LOCAL}")
-    logger.info(f"   Response Topic: {topics.ENHANCEMENT_RESPONSE_LOCAL}")
+    logger.info(f"   Request Topic: {REQ_TOPIC}")
+    logger.info(f"   Response Topic: {RES_TOPIC}")
     logger.info(f"   Document ID: {doc_id}")
     logger.info("==================================================================")
 
     # 1. Khởi tạo Consumer để nghe kết quả trả về
     consumer = AIOKafkaConsumer(
-        topics.ENHANCEMENT_RESPONSE_LOCAL,
+        RES_TOPIC,
         bootstrap_servers=settings.KAFKA,
         group_id=f"smoke_test_enhance_{uuid.uuid4().hex[:6]}",
         auto_offset_reset="latest",
@@ -68,9 +73,9 @@ async def run_test():
     await producer.start()
 
     try:
-        logger.info(f"📤 Gửi request test vào topic '{topics.ENHANCEMENT_REQUEST_LOCAL}'...")
+        logger.info(f"📤 Gửi request test vào topic '{REQ_TOPIC}'...")
         await producer.send_and_wait(
-            topic=topics.ENHANCEMENT_REQUEST_LOCAL,
+            topic=REQ_TOPIC,
             key=doc_id.encode("utf-8"),
             value=request_payload,
         )
