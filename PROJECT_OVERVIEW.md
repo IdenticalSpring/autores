@@ -274,12 +274,16 @@ settings.API_KEY_ID         # Key cho health-check API
 
 ## 10. Local vs Production
 
-| Yếu tố | Local | Production |
+| Yếu tố | Local | Production (chuẩn) |
 |---|---|---|
 | Topic suffix | `_local` (vd: `chatbot_request_local`) | Không có suffix |
-| Entry point | `main_*_local.py` | `main_*.py` hoặc `main.py` |
-| Docker | `docker-compose-local.yaml` | `docker-compose.yaml` |
-| Deploy | Chạy tay trên máy dev | Jenkins CI/CD → server `192.168.3.140` |
+| Entry point | `main_*_local.py` | `main.py` (4 listener) hoặc `main_*.py` (tách service) |
+| Docker | `docker-compose.yaml` (app) + `docker-compose-infra.yaml` (hạ tầng local) | `docker-compose.yaml` / `docker-compose-<service>.yaml` |
+| Deploy | `./deploy.sh all` trên máy dev | Jenkins CI/CD → server `192.168.3.140` |
+
+> Compose dev cũ (`docker-compose-local.yaml`, `docker-compose-app.yaml`) đã được archive tại
+> `backup/docker_obsolete/` và **không còn là chuẩn**. Smoke test mặc định dùng topic production;
+> thêm `--local` nếu chạy entrypoint `main_*_local.py`.
 
 ---
 

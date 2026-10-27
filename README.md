@@ -34,9 +34,10 @@
 
 ---
 
-## ⚡ Triển khai nhanh trên VPS Linux (1-Click Deploy)
+## ⚡ Triển khai nhanh (Docker chuẩn)
 
-Hệ thống cung cấp script [`deploy.sh`](deploy.sh) tự động kiểm tra toàn bộ môi trường (OS, CPU, RAM, Docker, dependencies), cấu hình hạ tầng và khởi chạy cả 4 AI services.
+Kiến trúc chuẩn: **1 container `autoresearching-ai-dev`** chạy `main.py` với 4 listener
+(doc / write / chat / enhance) trong một process, dùng **topic production**.
 
 ### 1. Chuẩn bị
 ```bash
@@ -46,25 +47,27 @@ cd autoresearching
 
 # Tạo file cấu hình từ template
 cp .env.example .env
-nano .env   # Điền GROQ_API_KEY (hoặc OPEN_AI_KEY, GEMINI_KEY)
+nano .env   # Điền GEMINI_KEY / OPEN_AI_KEY / GROQ_API_KEY / SERP_KEY
 ```
 
 ### 2. Chạy Deploy
 ```bash
 chmod +x deploy.sh
-./deploy.sh
+./deploy.sh all     # build image + docker-compose.yaml up -d + health check
 ```
 
 ---
 
-## 🎛️ Các tùy chọn chạy Deploy (`deploy.sh`)
+## 🎛️ Các lệnh `deploy.sh`
 
-| Lệnh | Mục đích | Khi nào dùng? |
-|---|---|---|
-| `./deploy.sh` | **Deploy toàn diện**: Kiểm tra môi trường → khởi động hạ tầng → build Docker image → start 4 AI service → health check. | Triển khai lần đầu trên VPS mới. |
-| `./deploy.sh --skip-build` | **Deploy nhanh**: Bỏ qua bước build image, dùng lại image `autoresearching-ai:latest` đã có sẵn. | Khi chỉ restart hoặc cập nhật cấu hình mà không thay đổi Dockerfile/code dependencies. |
-| `./deploy.sh --infra-only` | **Chỉ khởi động hạ tầng**: Kafka, Redis Stack, MongoDB, Qdrant, MinIO, Kafka UI, LiteLLM Proxy và nạp seed data. | Khi muốn chạy hạ tầng trên Docker nhưng chạy 4 AI service trực tiếp từ Python venv để debug code. |
-| `./deploy.sh --app-only` | **Chỉ khởi động 4 AI service**: Re-build và start lại 4 container AI (yêu cầu hạ tầng đã chạy). | Khi vừa cập nhật mã nguồn AI modules/listeners và muốn redeploy app nhanh. |
+| Lệnh | Mục đích |
+|---|---|
+| `./deploy.sh build` | Build image `autoresearching-ai-dev:latest` từ `Dockerfile` |
+| `./deploy.sh up` | Khởi động app theo `docker-compose.yaml` (1 container, 4 listener) |
+| `./deploy.sh infra-up` | Khởi động hạ tầng local (`docker-compose-infra.yaml`) |
+| `./deploy.sh all` | `build` + `up` + `health` |
+| `./deploy.sh status` / `health` / `logs [name]` / `restart` / `stop` | Vận hành |
+| `./deploy.sh infra-down` | Dừng hạ tầng local (giữ volume) |
 
 ---
 
@@ -85,26 +88,31 @@ chmod +x deploy.sh
 ## 🛠️ Quản trị & Vận hành Thường dùng
 
 ```bash
-# Xem log realtime của một service AI
-docker logs -f autoresearching-doc      # Document setup
-docker logs -f autoresearching-write    # Write reports
-docker logs -f autoresearching-chat     # AI Chatbot
-docker logs -f autoresearching-enhance  # Enhancement
+# Xem log toàn bộ 4 listener (chung 1 container)
+docker logs -f autoresearching-ai-dev
 
-# Khởi động lại riêng 4 AI service
-docker compose -f docker-compose-app.yaml restart
+# Đếm số listener đã khởi động (kỳ vọng = 4)
+docker logs autoresearching-ai-dev 2>&1 | grep -c "Ingestor loop started"
 
-# Dừng toàn bộ hệ thống (App + Hạ tầng)
-docker compose -f docker-compose-infra.yaml -f docker-compose-app.yaml down
+# Restart chuẩn
+docker compose -f docker-compose.yaml restart
+
+# Dừng app + hạ tầng local (KHÔNG dùng -v để giữ volume)
+docker compose -f docker-compose.yaml stop
+docker compose -f docker-compose-infra.yaml stop
 
 # Nạp lại dữ liệu khởi tạo (Redis keys, S3 Buckets)
 python3 scripts/seed_infra.py
 ```
 
+> Deploy tách riêng từng service (nếu cần): dùng `docker-compose-doc.yaml`, `-write.yaml`,
+> `-chat.yaml`, `-enhance.yaml` tương ứng.
+
 ---
 
 ## 📖 Tài liệu chi tiết khác
 
-- 📑 [DEPLOY.md](DEPLOY.md): Hướng dẫn triển khai thủ công chi tiết từng bước & cấu hình tường lửa.
+- 📑 [DEPLOY.md](DEPLOY.md): Triển khai, health check, bảng cổng, vận hành.
 - 📑 [DOCS_INDEX.md](DOCS_INDEX.md): Danh mục tài liệu kỹ thuật & quy chuẩn kiến trúc của từng module.
 - 📑 [AGENTS.md](AGENTS.md): Quy chuẩn clean code và tài liệu hướng dẫn dành cho AI coding assistant.
+- 🗄️ `backup/docs_obsolete/`: báo cáo/handoff cũ (archive, chỉ để tra cứu — **không dùng làm tài liệu chuẩn**).

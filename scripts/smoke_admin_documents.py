@@ -6,8 +6,8 @@ sự cố 2026-10-23 (3 request admin_documents không có response).
 
 Cách chạy (trong container, nơi có env Kafka/MinIO):
 
-    python scripts/smoke_admin_documents.py                    # topic *_local
-    python scripts/smoke_admin_documents.py --prod             # topic thật
+    python scripts/smoke_admin_documents.py                    # topic production (mặc định)
+    python scripts/smoke_admin_documents.py --local            # topic *_local
     python scripts/smoke_admin_documents.py --path autoresearching/sample/sample.pdf
     python scripts/smoke_admin_documents.py --timeout 600
 
@@ -61,8 +61,9 @@ def matches(message: dict, document_id: str, session_id: str) -> bool:
 
 
 async def run(args) -> int:
-    request_topic = topics.DOCUMENT_SETUP_REQUEST if args.prod else topics.DOCUMENT_SETUP_REQUEST_LOCAL
-    response_topic = topics.DOCUMENT_SETUP_RESPONSE if args.prod else topics.DOCUMENT_SETUP_RESPONSE_LOCAL
+    # Kiến trúc chuẩn dùng topic production (main.py); `--local` cho các entrypoint main_*_local.py
+    request_topic = topics.DOCUMENT_SETUP_REQUEST_LOCAL if args.local else topics.DOCUMENT_SETUP_REQUEST
+    response_topic = topics.DOCUMENT_SETUP_RESPONSE_LOCAL if args.local else topics.DOCUMENT_SETUP_RESPONSE
     suffix = uuid.uuid4().hex[:8]
     session_id = str(uuid.uuid4())
     document_id = f"smoke-admin-{suffix}"
@@ -132,7 +133,10 @@ async def run(args) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke test admin_documents qua Kafka")
-    parser.add_argument("--prod", action="store_true", help="Dùng topic thật thay vì *_local")
+    parser.add_argument("--local", action="store_true",
+                        help="Dùng topic *_local (khi chạy main_*_local.py); mặc định là topic production")
+    parser.add_argument("--prod", action="store_true",
+                        help="(deprecated, no-op) Trước đây dùng để chọn topic thật; nay là mặc định")
     parser.add_argument("--path", default="autoresearching/sample/sample.pdf",
                         help="MinIO path dạng bucket/key của file mẫu")
     parser.add_argument("--timeout", type=int, default=300, help="Giây chờ response")

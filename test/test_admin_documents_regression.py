@@ -111,6 +111,7 @@ def build_listener(captured):
     listener._finalize_task = fake_finalize_task
     listener.task_timer = fake_task_timer
     listener.get_key = fake_get_key
+    listener.redis = None  # get_journals: SearchJournal(self.redis)
     return listener
 
 
@@ -177,6 +178,60 @@ def test_unhandled_exception_still_publishes_response():
     assert message["user_id"] == BE_PAYLOAD["user_id"]
     assert message["document_id"] == BE_PAYLOAD["document_id"]
     assert message["session_id"] == BE_PAYLOAD["session_id"]
+
+
+# --------------------------------------------------------------------------- #
+# 5. `get_journals` không được ghi đè message (bug 2026-10-25)
+# --------------------------------------------------------------------------- #
+def test_get_journals_does_not_overwrite_message():
+    """Trước đây `message = {"message": ...}` xoá sạch identifier ⇒ BE timeout 300s."""
+    source = (ROOT / "document_setup_listener.py").read_text(encoding="utf-8")
+    start = source.index("elif event_type == DocumentSetupEvent.GET_JOURNALS")
+    end = source.index("elif event_type == DocumentSetupEvent.ADMIN_DOCUMENTS")
+    block = source[start:end]
+    assert "message = {" not in block, (
+        "get_journals không được gán lại message (sẽ mất event_type/user_id/document_id/session_id)"
+    )
+    assert 'message["message"]' in block, "phải set text trạng thái vào message[..] để giữ identifier"
+
+
+class FakeSearchJournal:
+    """Thay SearchJournal thật để không crawl scimago (network, chậm)."""
+
+    received = None
+
+    def __init__(self, redis_client=None):
+        self.redis_client = redis_client
+
+    async def setup(self, last_updated=1999):
+        FakeSearchJournal.received = last_updated
+        return None
+
+
+def test_get_journals_response_echoes_identifiers():
+    payload = {
+        "event_type": "get_journals",
+        "model_id": "localhost",
+        "user_id": "7eb53376-1111-2222-3333-444455556666",
+        "document_id": "admin-journals",
+        "session_id": "aa3afffc-e04b-42fc-968d-86d36ac66c34",
+        "last_updated": 2023,
+    }
+    original = listener_module.SearchJournal
+    listener_module.SearchJournal = FakeSearchJournal
+    try:
+        captured = run_handler(payload)
+    finally:
+        listener_module.SearchJournal = original
+
+    assert captured, "phải có response dù crawl xong"
+    message = captured[-1]
+    for identifier in ("event_type", "user_id", "document_id", "session_id", "model_id"):
+        assert message.get(identifier) == payload[identifier], f"thiếu echo {identifier}"
+    assert message["last_updated"] == payload["last_updated"]
+    assert message["message"] == "Finish crawling ISSN and Q information"
+    assert "error_code" not in message, message
+    assert FakeSearchJournal.received == payload["last_updated"]
 
 
 if __name__ == "__main__":
