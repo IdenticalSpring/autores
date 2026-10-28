@@ -124,3 +124,4 @@ task_*.md
 *.task.md
 DOCS_INDEX.md
 docs/KAFKA_INTEGRATION_GUIDE.md
+output_artifacts/

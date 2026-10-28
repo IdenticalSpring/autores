@@ -4,9 +4,9 @@
   "user_id": "smoke-user",
   "document_id": "650000000000000000000001",
   "session_id": "smoke-session",
-  "section_name": "Tổng quan",
-  "content": "## Tổng quan\n\nNghiên cứu này được thực hiện nhằm mục đích tìm hiểu các yếu tố ảnh hưởng đến sự hài lòng của khách hàng đối với dịch vụ ngân hàng số, từ đó đề xuất một số giải pháp góp phần nâng cao chất lượng dịch vụ.",
-  "instruction": "Rút gọn phần mở đầu còn khoảng một nửa độ dài",
-  "context": "",
+  "section_name": "Kết luận và Hàm ý quản trị",
+  "content": "## Kết luận và Khuyến nghị\n\nKết quả nghiên cứu thực nghiệm trên 35 mẫu khảo sát bằng mô hình hồi quy OLS khẳng định thu nhập (thu_nhap) có tác động mạnh mẽ và có ý nghĩa thống kê cao nhất đến mức chi tiêu mua sắm livestream (Beta = 0.843, p = 0.000). Trong khi đó, độ tuổi (tuoi) và giới tính (gioi_tinh) không cho thấy sự khác biệt có ý nghĩa thống kê trong mẫu khảo sát này. Do đó, các doanh nghiệp và nhà bán lẻ trực tuyến cần tập trung xây dựng chiến lược tiếp thị phân khúc theo mức thu nhập và tối ưu hóa tính minh bạch của thông tin sản phẩm trên các phiên livestream để gia tăng doanh số bền vững.",
+  "instruction": "Biên tập lại đoạn kết luận theo văn phong học thuật trang trọng, súc tích và mạch lạc",
+  "context": "Đề tài: Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
   "language": "Vietnamese"
 }
