@@ -411,7 +411,7 @@ async def planner_node(state: State) -> Command[Literal["human_feedback"]]:
         for step in state["tool_configs"]:
             # Handle None parameters by using empty dict
             params = step.parameters if step.parameters is not None else {}
-            key_to_find = (step.tool, tuple(sorted(params.items())))
+            key_to_find = (step.tool, json.dumps(params, sort_keys=True, default=str))
             if key_to_find not in seen_tools:
                 analyze_steps.append(AnalyzeStep(
                 step_type=AnalysisStepType.TOOL,
@@ -561,7 +561,7 @@ async def planner_node(state: State) -> Command[Literal["human_feedback"]]:
             for step in initial_plan.steps:
                 # Handle None parameters by using empty dict
                 params = step.parameters if step.parameters is not None else {}
-                key_to_find = (step.tool, tuple(sorted(params.items())))
+                key_to_find = (step.tool, json.dumps(params, sort_keys=True, default=str))
                 if key_to_find not in seen_tools:
                     analyze_steps.append(AnalyzeStep(
                     step_type=AnalysisStepType.TOOL,

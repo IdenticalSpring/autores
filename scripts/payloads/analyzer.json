@@ -23,6 +23,8 @@
       "code": "tuoi",
       "scale": "ratio",
       "type": "int",
+      "role": "independent",
+      "variable_type": "observed",
       "description": "Độ tuổi của người tham gia khảo sát"
     },
     {
@@ -30,6 +32,8 @@
       "code": "thu_nhap",
       "scale": "ratio",
       "type": "float",
+      "role": "independent",
+      "variable_type": "observed",
       "description": "Thu nhập hàng tháng (triệu VNĐ)"
     },
     {
@@ -37,6 +41,8 @@
       "code": "gioi_tinh",
       "scale": "nominal",
       "type": "str",
+      "role": "independent",
+      "variable_type": "observed",
       "description": "Giới tính người tham gia khảo sát"
     },
     {
@@ -44,6 +50,8 @@
       "code": "chi_tieu",
       "scale": "ratio",
       "type": "float",
+      "role": "dependent",
+      "variable_type": "observed",
       "description": "Mức chi tiêu mua sắm livestream trung bình (triệu VNĐ)"
     }
   ],

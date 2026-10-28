@@ -134,20 +134,40 @@ class OutlineGeneration():
                     raise error
                 logger.info(f"[{self}] Fail to generate subheading description")
                 word_count = section.get("word_count", "0-0").split("-")
-                lower_bound = int(word_count[0] / len(section["subheadings"]))
-                upper_bound = int(word_count[1] / len(section["subheadings"]))
+                try:
+                    w_low = int(word_count[0]) if len(word_count) > 0 and word_count[0].isdigit() else 200
+                    w_high = int(word_count[1]) if len(word_count) > 1 and word_count[1].isdigit() else 500
+                except Exception:
+                    w_low, w_high = 200, 500
+                num_subs = max(len(section.get("subheadings", [])), 1)
+                lower_bound = w_low // num_subs
+                upper_bound = w_high // num_subs
                 subheading_description = SubHeadingInfo(
                     detail_description=subheading_title,
                     subheading_word_count=f"{lower_bound}-{upper_bound}"
                 )
+            raw_desc = (
+                subheading_description.detail_description
+                if subheading_description and subheading_description.detail_description
+                else (subheading_title or "")
+            )
+            detail_desc = (
+                raw_desc.replace(
+                    "- what to write for subsection ", language_dict.get("- what to write for subsection ", "")
+                )
+                .replace("- subsection ", language_dict.get("- subsection ", ""))
+                .replace("\n", "</br>")
+            )
+            raw_word_count = (
+                subheading_description.subheading_word_count
+                if subheading_description and subheading_description.subheading_word_count
+                else None
+            )
+            final_word_count = str(raw_word_count) if raw_word_count else "200-500"
             subheading_tunned = SubHeading(
                 subheading=subheading_title,
-                detail_description=subheading_description.detail_description.replace(
-                    "- what to write for subsection ", language_dict["- what to write for subsection "]
-                ).replace(
-                    "- subsection ", language_dict["- subsection "]
-                ).replace("\n", "</br>"),
-                subheading_word_count=subheading_description.subheading_word_count,
+                detail_description=detail_desc,
+                subheading_word_count=final_word_count,
             )
             return subheading_tunned, input_tokens, output_tokens
         else:
