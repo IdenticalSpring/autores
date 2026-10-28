@@ -1,0 +1,17 @@
+{
+  "event_type": "search_user_documents",
+  "model_id": "gemini-3.5-flash-lite",
+  "language": "Vietnamese",
+  "user_id": "smoke-user",
+  "document_id": "smoke-user-docs-1",
+  "session_id": "smoke-user-docs-session",
+  "documents": [
+    {
+      "title": "Báo cáo mẫu nghiên cứu",
+      "url": "users/sample/sample.pdf",
+      "source": "USER",
+      "ref_id": "ref-1",
+      "outline_id": "outline-1"
+    }
+  ]
+}

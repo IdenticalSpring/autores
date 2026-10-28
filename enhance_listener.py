@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
         
 class EnhancementEventListener(BaseAsyncListener):
-    def __init__(self, topics, consumer_configs: dict, concurency: int = 100):
+    def __init__(self, topics, consumer_configs: dict, concurency: int | None = None):
         super().__init__(topics, consumer_configs, concurency)
         
     async def _handle_record(self, record: ConsumerRecord):
@@ -56,6 +56,28 @@ class EnhancementEventListener(BaseAsyncListener):
                 _id = "admin"
             logger.error(f"[{_id}] Task timed out for document_id: {value["event_type"]}")
             await self._finalize_task(None, False, _id, producer, response_topic, message, value["event_type"], True)
+        except Exception as e:
+            # Bug #17 (cùng loại): exception thoát khỏi handler ⇒ BE chỉ thấy timeout.
+            _id = value.get("document_id") or value.get("conv_id") or "admin"
+            logger.error(f"[{_id}] Unhandled error for event {value.get('event_type')}: {e}")
+            logger.error(traceback.format_exc())
+            try:
+                producer = await get_producer()
+                message = {
+                    "event_type": value.get("event_type", ""),
+                    "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
+                    "error": str(e),
+                }
+                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                    if identifier in value:
+                        message[identifier] = value[identifier]
+                response_topic = (
+                    topics.ENHANCEMENT_RESPONSE if topic == topics.ENHANCEMENT_REQUEST
+                    else topics.ENHANCEMENT_RESPONSE_LOCAL
+                )
+                await self.send_message(producer, response_topic, message)
+            except Exception as publish_error:  # noqa: BLE001
+                logger.error(f"Failed to publish error response for {value.get('event_type')}: {publish_error}")
 
     async def _handle_enhancement_event(self, topic, value_str):
         start_time = time.time()
@@ -414,6 +436,10 @@ class EnhancementEventListener(BaseAsyncListener):
             logger.info(f"[{_id}] Wrong event_type - event {event_type}")
             message["error_code"] = Error.EVENT_NOT_FOUND
             message["error"] = f"Wrong event_type - event {event_type}"
+            # Echo identifier để BE ghép được request (nếu không sẽ chỉ thấy timeout)
+            for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                if value.get(identifier):
+                    message[identifier] = value[identifier]
         await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, event_type)
 
 

@@ -1,0 +1,21 @@
+{
+  "event_type": "mix_titles",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "level": "LUAN_VAN_THAC_SI",
+  "proposals": [
+    {
+      "title": "Nghiên cứu các yếu tố ảnh hưởng đến quyết định mua hàng qua livestream",
+      "description": "Phân tích lòng tin và tính tương tác của người bán"
+    },
+    {
+      "title": "Tác động của khuyến mãi trong phiên livestream đến hành vi mua sắm ngẫu hứng",
+      "description": "Khảo sát người tiêu dùng trẻ trên nền tảng thương mại điện tử"
+    }
+  ]
+}

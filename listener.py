@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from aiokafka import AIOKafkaProducer
 from aiokafka.consumer import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
+from aiokafka.structs import ConsumerRecord, TopicPartition, OffsetAndMetadata
 import asyncio
 import logging
 import json
+import os
 import traceback
 import time
 import uuid
@@ -21,22 +22,62 @@ logger = logging.getLogger(__name__)
 
 
 class BaseAsyncListener(ABC):
-    def __init__(self, topics, consumer_config: dict, concurency: int = 100) -> None:
+    """Base consumer dùng chung cho 4 listener (document_setup / write / chatbot / enhance).
+
+    Offset được commit theo kiểu contiguous SAU KHI handler xử lý xong.
+
+    GIỚI HẠN ĐÃ BIẾT (H4):
+    - Chỉ hỗ trợ **1 instance cho mỗi consumer group**. State offset
+      (_pending_offsets / _commit_offset / _last_seen) là process-local và
+      KHÔNG reset khi partition bị revoke ⇒ chạy nhiều instance sẽ khiến offset
+      không commit được (LAG kẹt) cho tới khi restart process.
+    - Muốn scale ngang: bổ sung callback on_partitions_revoked/assigned để pop() state.
+    """
+    def __init__(
+        self,
+        topics,
+        consumer_config: dict,
+        concurency: int | None = None,
+        concurrency: int | None = None,
+    ) -> None:
         self._topics = topics
         self._consumer_config = consumer_config
-        self._semaphore = asyncio.Semaphore(concurency)
-        self._work_queue = asyncio.Queue(maxsize=2 * concurency)
+        # Cho phép chỉnh qua ENV mà không sửa code: LISTENER_CONCURRENCY (mặc định 100 = hành vi cũ)
+        explicit = concurrency if concurrency is not None else concurency
+        resolved = explicit if explicit is not None else int(os.getenv("LISTENER_CONCURRENCY", "100"))
+        resolved = max(1, resolved)
+        self.concurrency = resolved
+        logger.info(
+            f"Listener concurrency={resolved} (source={'explicit' if explicit is not None else 'env/default'}) "
+            f"on topics={topics}"
+        )
+        self._semaphore = asyncio.Semaphore(resolved)
+        self._work_queue = asyncio.Queue(maxsize=2 * resolved)
         self.mongo_client = get_mongodb_client()
         self.redis_client = get_redis_stack_client()
         self.redis = get_redis_client()
         self._running = False
         self._worker_tasks: list[asyncio.Task] = []
+        # --- Offset tracking: chỉ commit khi đã XỬ LÝ XONG (tránh mất message) ---
+        self._pending_offsets: dict[TopicPartition, set[int]] = {}
+        self._commit_offset: dict[TopicPartition, int] = {}
+        self._last_seen: dict[TopicPartition, int] = {}
+        self._commit_lock = asyncio.Lock()
 
     async def _ingestor_loop(self):
         await self._consumer.start()
         logger.info("Ingestor loop started. Fetching messages...")
         try:
             async for record in self._consumer:
+                # Đánh dấu offset là "đang xử lý" — CHƯA commit — TRƯỚC khi đẩy vào queue.
+                # Nếu đăng ký sau `put()`, worker có thể xử lý xong và gọi _ack trước khi
+                # partition có mặt trong _pending_offsets ⇒ _ack return sớm ⇒ offset kẹt
+                # vĩnh viễn (LAG không về 0 dù message đã xử lý). (bug #16)
+                tp = TopicPartition(record.topic, record.partition)
+                self._pending_offsets.setdefault(tp, set()).add(record.offset)
+                self._commit_offset.setdefault(tp, record.offset)
+                self._last_seen[tp] = max(self._last_seen.get(tp, record.offset), record.offset)
+
                 await self._work_queue.put(record)
                 try:
                     value = json.loads(record.value)
@@ -50,23 +91,74 @@ class BaseAsyncListener(ABC):
                 except Exception:
                     logger.info("Invalid JSON body")
                     pass
-                
-                await self._consumer.commit()
         finally:
             logger.warning("Ingestor loop is shutting down.")
             await self._consumer.stop()
+
+    async def _ack(self, record: ConsumerRecord) -> None:
+        """Commit offset của partition theo kiểu 'contiguous' (chỉ khi mọi offset trước đã xong).
+
+        Giới hạn kiến trúc (H4):
+        State offset (_pending_offsets, _commit_offset, _last_seen) được lưu trong RAM của process.
+        Hệ thống được thiết kế chạy 1 instance / consumer group.
+        """
+        tp = TopicPartition(record.topic, record.partition)
+        async with self._commit_lock:
+            # setdefault: chống trường hợp _ack đến trước khi partition được đăng ký
+            pending = self._pending_offsets.setdefault(tp, set())
+            pending.discard(record.offset)
+            # Không bao giờ commit vượt quá offset hiện tại (chống nhảy cóc khi race)
+            commit_at = min(self._commit_offset.get(tp, record.offset), record.offset)
+            last_seen = self._last_seen.get(tp, record.offset)
+            # Tiến commit_offset qua mọi offset đã xử lý liên tiếp
+            while commit_at <= last_seen and commit_at not in pending:
+                commit_at += 1
+            if commit_at > self._commit_offset.get(tp, -1):
+                self._commit_offset[tp] = commit_at
+                try:
+                    await self._consumer.commit({tp: OffsetAndMetadata(commit_at, "")})
+                except Exception as commit_error:  # noqa: BLE001
+                    logger.warning(f"Commit offset {tp}@{commit_at} failed: {commit_error}")
 
     async def _worker_loop(self, worker_id: int):
         while self._running:
             try:
                 record = await self._work_queue.get()
-                async with self._semaphore:
-                    await self._handle_record(record=record)
-                self._work_queue.task_done()
             except asyncio.CancelledError:
                 break
-            except Exception:
-                logger.error(f"Unhandled exception in Worker-{worker_id}. Continuing...", exc_info=True)
+
+            record_failed = False
+            try:
+                try:
+                    async with self._semaphore:
+                        await self._handle_record(record=record)
+                except asyncio.CancelledError:
+                    record_failed = True
+                    logger.warning(f"Worker-{worker_id} cancelled while processing record.")
+                    raise
+                except Exception as exc:
+                    record_failed = True
+                    logger.error(
+                        f"Unhandled exception in Worker-{worker_id} while processing record "
+                        f"{record.topic}[{record.partition}]@{record.offset}: {exc}. "
+                        f"DECISION (H3): Offset will still be acknowledged to maintain contiguous "
+                        f"commit progression, avoiding pipeline deadlock.",
+                        exc_info=True,
+                    )
+                finally:
+                    # Quyết định thiết kế (H3): Commit offset kể cả khi handler lỗi hoặc publish thất bại.
+                    # Lý do: Tránh kẹt offset vĩnh viễn trên partition (contiguous commit).
+                    # Hạn chế: Message lỗi không được Kafka redeliver; BE sẽ thấy error hoặc timeout.
+                    if record_failed:
+                        logger.warning(
+                            f"Worker-{worker_id} acknowledging failed record "
+                            f"{record.topic}[{record.partition}]@{record.offset} to preserve offset progression."
+                        )
+                    await self._ack(record)
+            except asyncio.CancelledError:
+                break
+            finally:
+                # M1: Luôn gọi task_done() trong finally để queue.join() không bao giờ bị treo khi shutdown
                 self._work_queue.task_done()
 
     async def start(self):

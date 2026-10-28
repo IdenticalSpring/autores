@@ -1,0 +1,7 @@
+{
+  "event_type": "get_journals",
+  "user_id": "smoke-user",
+  "document_id": "smoke-journal-doc",
+  "session_id": "smoke-journal-session",
+  "last_updated": 2026
+}

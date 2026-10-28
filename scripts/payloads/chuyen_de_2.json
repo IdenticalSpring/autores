@@ -1,0 +1,49 @@
+{
+  "event_type": "chuyen_de_2",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "650000000000000000000001",
+  "session_id": "smoke-cd2-session",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "references_style": "APA",
+  "final_proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "description": "Phân tích tác động của livestream bán hàng đến quyết định mua sắm",
+    "final_model": "Mô hình hồi quy đa biến: Quyết định mua = f(Độ tin cậy, Sự khan hiếm, Tương tác)",
+    "hypothesis": ["H1: Độ tin cậy tác động tích cực", "H2: Sự khan hiếm tác động tích cực"],
+    "variables": ["Độ tin cậy", "Sự khan hiếm", "Tương tác", "Quyết định mua"],
+    "survey_questions": ["Bạn có tin tưởng người livestream không?", "Bạn có cảm thấy sản phẩm sắp hết hàng không?"],
+    "questions": ["Các yếu tố nào ảnh hưởng mạnh nhất?"]
+  },
+  "papers_search": [
+    {
+      "title": "Nghiên cứu về Livestream bán hàng và hành vi mua sắm",
+      "abstract": "Livestream bán hàng là một hình thức thương mại điện tử mới nổi tác động mạnh mẽ đến người tiêu dùng.",
+      "source": "USER",
+      "ref_id": "ref-paper-1"
+    }
+  ],
+  "outline": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "outline": [
+      {
+        "heading": "1. Phương pháp nghiên cứu",
+        "word_count": "500-1000",
+        "overview": "Tổng quan phương pháp nghiên cứu",
+        "subheadings": [
+          {
+            "subheading": "1.1. Mô hình nghiên cứu",
+            "detail_description": "Trình bày mô hình nghiên cứu và các giả thuyết"
+          }
+        ]
+      }
+    ]
+  },
+  "outline_code": [
+    "SECTION_1",
+    "REFERENCES",
+    "APPENDICES"
+  ]
+}

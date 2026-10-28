@@ -128,3 +128,19 @@ LANGUAGE_KIT = {
         "- what to write for subsection ": "- What to write for Subsection ",
     }
 }
+
+
+_LANG_ALIASES: dict[str, str] = {
+    "vi": "tiếng việt",
+    "vietnamese": "tiếng việt",
+    "tiếng việt": "tiếng việt",
+    "en": "english",
+    "english": "english",
+}
+DEFAULT_LANGUAGE = "tiếng việt"
+
+
+def get_language_dict(language: str | None) -> dict[str, str]:
+    """Return dictionary of localized strings from LANGUAGE_KIT with aliases and fallback."""
+    key = _LANG_ALIASES.get((language or "").strip().lower(), DEFAULT_LANGUAGE)
+    return LANGUAGE_KIT.get(key, LANGUAGE_KIT[DEFAULT_LANGUAGE])

@@ -51,7 +51,7 @@ from document_setup.src.schemas.outline import (
 from document_setup.src.configs.app import settings
 
 from get_llm_response import get_llm, get_answer_with_schema
-from translate import LANGUAGE_KIT
+from translate import LANGUAGE_KIT, get_language_dict
 from utils import markdownify_keep_images, hash_blake3, _clean_text
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -104,12 +104,10 @@ class OutlineGeneration():
         section_over_view: str, 
         subheading: str | dict,
     ) -> tuple[dict, int, int]:
-        language_dict = LANGUAGE_KIT.get(self.language.lower(), "tiếng việt")
-        if isinstance(subheading, str) or (isinstance(subheading, dict) and not (subheading["detail_description"] and subheading.get("subheading_word_count"))):
-            if isinstance(subheading, str):
-                logger.info(f"[{self}] Heading {section["heading"]} - Subheading {subheading}")
-            else:
-                logger.info(f"[{self}] Heading {section["heading"]} - Subheading {subheading["subheading"]}")
+        language_dict = get_language_dict(self.language)
+        subheading_title = subheading if isinstance(subheading, str) else subheading.get("subheading", "")
+        if isinstance(subheading, str) or (isinstance(subheading, dict) and not (subheading.get("detail_description") and subheading.get("subheading_word_count"))):
+            logger.info(f"[{self}] Heading {section['heading']} - Subheading {subheading_title}")
             content = f"""
             Example outline:
             {default_outline}
@@ -139,11 +137,11 @@ class OutlineGeneration():
                 lower_bound = int(word_count[0] / len(section["subheadings"]))
                 upper_bound = int(word_count[1] / len(section["subheadings"]))
                 subheading_description = SubHeadingInfo(
-                    detail_description=subheading,
+                    detail_description=subheading_title,
                     subheading_word_count=f"{lower_bound}-{upper_bound}"
                 )
             subheading_tunned = SubHeading(
-                subheading=subheading,
+                subheading=subheading_title,
                 detail_description=subheading_description.detail_description.replace(
                     "- what to write for subsection ", language_dict["- what to write for subsection "]
                 ).replace(
@@ -246,8 +244,8 @@ class OutlineGeneration():
             output_tokens = []
 
         return Heading(
-            heading=section["heading"],
-            word_count=section["word_count"],
+            heading=section.get("heading", ""),
+            word_count=section.get("word_count", ""),
             overview=description.overview,
             subheadings=subheadings
         ), sum(input_tokens) + des_input_tokens + sub_input_tokens, sum(output_tokens) + des_output_tokens + sub_output_tokens
@@ -782,6 +780,8 @@ class OutlineGeneration():
             if "code" in outline["outline"][section_num]:
                 outline_code.append(outline["outline"][section_num]["code"])
                 del outline["outline"][section_num]["code"]
+            else:
+                outline_code.append(None)
             if outline["outline"][section_num].get("overview"):
                 outline["outline"][section_num]["overview"] = markdownify_keep_images(outline["outline"][section_num]["overview"])
             for subsection_num in range(len(outline["outline"][section_num]["subheadings"])):
@@ -844,7 +844,8 @@ class OutlineGeneration():
             self.output_tokens += out_tok
         
         for heading in range(len(headings_dict)):
-            headings_dict[heading]["code"] = outline_code[heading]
+            if heading < len(outline_code) and outline_code[heading] is not None:
+                headings_dict[heading]["code"] = outline_code[heading]
         final_outline = {
             "title": final_proposal["title"],
             "outline": headings_dict,
@@ -1814,7 +1815,7 @@ class OutlineGeneration():
                             "paperTitle": paper_title,
                             "subheading": "",
                             "summary": summary_ref_id,
-                            "paperUsage": LANGUAGE_KIT.get(self.language.lower(), "tiếng việt")["unused_paper"],
+                            "paperUsage": get_language_dict(self.language)["unused_paper"],
                             "paperChunk": "",
                             "notUsed": True,
                             "inherited": False,
@@ -1971,7 +1972,7 @@ class OutlineGeneration():
                         if first_usage_section and first_usage_subheading:
                             usage_desc = f"{first_usage_section['heading']} - {first_usage_subheading['subheading']}"
                         else:
-                            usage_desc = LANGUAGE_KIT.get(self.language.lower(), "tiếng việt")["unused_paper"]
+                            usage_desc = get_language_dict(self.language)["unused_paper"]
 
                         placeholder_rows.append({
                             "paperTitle": paper_title,

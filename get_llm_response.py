@@ -19,6 +19,19 @@ from error_handle import handle_llm_exception
 from utils import get_mongodb_client
 from write_reports.src.configs.app import settings
 
+
+def _parse_retry_delay(message: str, default: int = 5, cap: int = 60) -> int:
+    """Đọc ``retry in 12.3s`` từ message 429 của Google; fallback ``default`` giây.
+
+    Gemini free tier trả 429 kèm gợi ý thời gian chờ. Trước đây 429 bị coi là
+    "unrecoverable" nên job fail ngay (xem error_audit E1). Nay ta chờ đúng
+    khoảng thời gian đó rồi thử lại.
+    """
+    match = re.search(r"retry in ([\d.]+)\s*s", message or "", flags=re.IGNORECASE)
+    if not match:
+        return default
+    return max(1, min(int(float(match.group(1))) + 1, cap))
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logging.getLogger("openai").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.ERROR)
@@ -475,8 +488,26 @@ async def get_answer_with_schema(
     content: Union[str, List[BaseMessage]], 
     structure: type[BaseModel],
 ) -> tuple[AIERROR | None, bool, str, int, int]:
-    structured_llm = llm.with_structured_output(structure, include_raw=True)
+    if structure is None:
+        # Bảo vệ: caller truyền schema None (vd map level không khớp) ⇒ trả lỗi rõ ràng
+        logger.error(f"[{_id}] get_answer_with_schema nhận structure=None — kiểm tra call site")
+        return (
+            AIERROR(500, "Structured schema is None — caller truyền schema không hợp lệ"),
+            False,
+            "",
+            0,
+            0,
+        )
     schema_name = getattr(structure, "__name__", str(structure))
+    try:
+        structured_llm = llm.with_structured_output(structure, include_raw=True)
+    except Exception as bind_err:
+        # Gemini bind lỗi ngay tại đây (vd "Unsupported tool type None") → log schema để khoanh vùng
+        logger.error(
+            f"[{_id}] BIND_DEBUG schema={schema_name} err={bind_err} "
+            f"json={json.dumps(structure.model_json_schema(), ensure_ascii=False)[:1200]}"
+        )
+        raise
     model_name = _model_name(llm)
     
     # Prepare messages
@@ -597,8 +628,25 @@ async def get_answer_with_schema(
             except Exception:
                 pass
             logger.info(f"[{_id}] {e}")
+            # Debug: log schema đang bind để bắt lỗi "Unsupported tool type None" của Gemini
+            if "Unsupported tool type" in str(e):
+                try:
+                    logger.error(
+                        f"[{_id}] SCHEMA_DEBUG schema={schema_name} "
+                        f"json={json.dumps(structure.model_json_schema(), ensure_ascii=False)[:1500]}"
+                    )
+                except Exception as schema_err:
+                    logger.error(f"[{_id}] SCHEMA_DEBUG cannot dump schema: {schema_err}")
             error, status_code = handle_llm_exception(e)
-            if status_code in [401, 403, 429]:
+            if status_code == 429:
+                delay = _parse_retry_delay(getattr(error, "message", ""))
+                logger.warning(
+                    f"[{_id}] {schema_name} rate limit 429 — chờ {delay}s rồi thử lại "
+                    f"(attempt {attempt + 1}/3)"
+                )
+                await asyncio.sleep(delay)
+                continue
+            if status_code in [401, 403]:
                 logger.error(f"[{_id}] Unrecoverable error (Status {status_code}). Aborting retries.")
                 return error, False, error.message, input_tokens, output_tokens
             logger.warning(f"[{_id}] {schema_name} attempt {attempt + 1}/3 failed with status {status_code}. Retrying...")
@@ -719,7 +767,12 @@ async def get_answer(
         except Exception as e:
             logger.info(f"[{_id}] {e}")
             error, status_code = handle_llm_exception(e)
-            if status_code in [401, 403, 429]:
+            if status_code == 429:
+                delay = _parse_retry_delay(getattr(error, "message", ""))
+                logger.warning(f"[{_id}] Rate limit 429 — chờ {delay}s rồi thử lại (attempt {attempt + 1}/3)")
+                await asyncio.sleep(delay)
+                continue
+            if status_code in [401, 403]:
                 logger.error(f"[{_id}] Unrecoverable error (Status {status_code}). Aborting retries.")
                 return error, False, error.message, 0, 0
             elif status_code in [503]:

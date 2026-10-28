@@ -12,6 +12,7 @@ from document_setup.src.modules.search_journals import SearchJournal
 from document_setup.src.modules.idea_generation import IdeaGeneration
 from document_setup.src.modules.ingest_docs import VectorDBProcessor
 from document_setup.src.modules.outline_generation import OutlineGeneration
+from document_setup.src.modules.validators import validate_level, validate_language
 
 from event_type import DocumentSetupEvent
 from error_type import DocumentSetupError, Error, ERROR_DICT, TIME_OUT_DICT, MAX_TOKENS_DICT
@@ -33,7 +34,7 @@ RESEARCH_TYPE = {
 
 
 class DocumentSetupEventListener(BaseAsyncListener):
-    def __init__(self, topics, consumer_configs: dict, concurency: int = 100):
+    def __init__(self, topics, consumer_configs: dict, concurency: int | None = None):
         super().__init__(topics, consumer_configs, concurency)
         
     async def _handle_record(self, record: ConsumerRecord):
@@ -266,7 +267,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = module.web_search_call
-                    logger.error(f'[{_id}] SEND: search_papers')
+                    logger.info(f'[{_id}] SEND: search_papers')
                     end = time.time()
                     logger.info(f'[{_id}] search_papers time: {end - start_time}')
                     task_success = True
@@ -345,7 +346,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: search_user_docments')
+                    logger.info(f'[{_id}] SEND: search_user_docments')
                     end = time.time()
                     logger.error(f'[{_id}] search_user_docments time: {end - start_time}')
                     task_success = True
@@ -424,7 +425,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_domains')
+                    logger.info(f'[{_id}] SEND: generate_domains')
                     end = time.time()
                     logger.error(f'[{_id}] generate_domains time: {end - start_time}')
                     
@@ -506,7 +507,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_subdomains')
+                    logger.info(f'[{_id}] SEND: generate_subdomains')
                     end = time.time()
                     logger.error(f'[{_id}] generate_subdomains time: {end - start_time}')
                     
@@ -579,7 +580,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_keywords')
+                    logger.info(f'[{_id}] SEND: generate_keywords')
                     end = time.time()
                     logger.error(f'[{_id}] generate_keywords time: {end - start_time}')
                     
@@ -646,6 +647,8 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 }
                 
                 self.empty_value_check(inp)
+                validate_level(level)
+                validate_language(language)
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
@@ -674,7 +677,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["web_search_call"] = module.web_search_call
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
-                    logger.error(f'[{_id}] SEND: generate_titles')
+                    logger.info(f'[{_id}] SEND: generate_titles')
                     end = time.time()
                     logger.error(f'[{_id}] generate_titles time: {end - start_time}')
                     
@@ -741,6 +744,8 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 }
                 
                 self.empty_value_check(inp)
+                validate_level(level)
+                validate_language(language)
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
@@ -760,7 +765,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_title_description')
+                    logger.info(f'[{_id}] SEND: generate_title_description')
                     end = time.time()
                     logger.error(f'[{_id}] generate_title_description time: {end - start_time}')
                     
@@ -820,6 +825,8 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 }
                 
                 self.empty_value_check(inp)
+                validate_level(level)
+                validate_language(language)
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
@@ -842,7 +849,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_title_description_no_info')
+                    logger.info(f'[{_id}] SEND: generate_title_description_no_info')
                     end = time.time()
                     logger.error(f'[{_id}] generate_title_description_no_info time: {end - start_time}')
                     
@@ -906,6 +913,8 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 }
                 
                 self.empty_value_check(inp)
+                validate_level(level)
+                validate_language(language)
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
@@ -925,7 +934,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = module.web_search_call
-                    logger.error(f'[{_id}] SEND: Mix titles')
+                    logger.info(f'[{_id}] SEND: Mix titles')
                     end = time.time()
                     logger.error(f'[{_id}] Mix titles time: {end - start_time}')
                     
@@ -1031,7 +1040,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: modify_outline')
+                    logger.info(f'[{_id}] SEND: modify_outline')
                     end = time.time()
                     logger.error(f'[{_id}] modify_outline time: {end - start_time}')
                     
@@ -1140,7 +1149,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_outline')
+                    logger.info(f'[{_id}] SEND: generate_outline')
                     end = time.time()
                     logger.error(f'[{_id}] generate_outline time: {end - start_time}')
                     
@@ -1231,7 +1240,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = embed_tokens
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: generate_outline_with_refs')
+                    logger.info(f'[{_id}] SEND: generate_outline_with_refs')
                     end = time.time()
                     logger.error(f'[{_id}] generate_outline_with_refs time: {end - start_time}')
                     
@@ -1271,14 +1280,24 @@ class DocumentSetupEventListener(BaseAsyncListener):
             if "error_code" not in message:
                 try:
                     module = SearchJournal(self.redis)
-                    await module.setup(last_updated)
+                    cached_keys = await module.setup(last_updated)
                     # KHÔNG được gán lại `message`: nếu ghi đè sẽ mất identifier
                     # (event_type/user_id/document_id/session_id) ⇒ BE không ghép được
                     # request ⇒ timeout 300s dù AI đã crawl xong.
                     message["message"] = "Finish crawling ISSN and Q information"
                     message["last_updated"] = last_updated
-                    logger.info(f'[{_id}] SEND: ', message)
-                    
+                    # Số key Redis ghi mới: 0 nghĩa là không có năm nào để crawl
+                    # (last_updated >= CURRENT_YEAR) hoặc cache đã đầy đủ.
+                    message["journals_cached"] = cached_keys
+                    if cached_keys:
+                        logger.info(f"[{_id}] SEND: {message}")
+                    else:
+                        logger.warning(
+                            f"[{_id}] get_journals không ghi key mới nào (last_updated={last_updated}, "
+                            f"CURRENT_YEAR={settings.CURRENT_YEAR}) — kiểm tra lại tham số hoặc cache"
+                        )
+                        logger.info(f"[{_id}] SEND: {message}")
+
                     task_success = True
                 except AIERROR as e:
                     logger.error(f"[{_id}] LLM failed for event {event_type}")
@@ -1332,7 +1351,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["model_id"] = module.model_id
                     message["embed_tokens"] = 0
                     message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
-                    logger.error(f'[{_id}] SEND: admin_documents')
+                    logger.info(f'[{_id}] SEND: admin_documents')
                     end = time.time()
                     logger.error(f'[{_id}] admin_documents time: {end - start_time}')
                     
@@ -1397,7 +1416,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = embed_tokens
                     message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
                     message["data_id"] = value["data_id"]
-                    logger.error(f'[{_id}] SEND: user_guide_documents')
+                    logger.info(f'[{_id}] SEND: user_guide_documents')
                     end = time.time()
                     logger.error(f'[{_id}] user_guide_documents time: {end - start_time}')
                     
@@ -1466,7 +1485,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
                     message["model_id"] = module.model_id
-                    logger.error(f'[{_id}] SEND: user_documents')
+                    logger.info(f'[{_id}] SEND: user_documents')
                     end = time.time()
                     logger.error(f'[{_id}] user_documents time: {end - start_time}')
                     
@@ -1531,7 +1550,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["output_tokens"] = 0
                     message["embed_tokens"] = embed_tokens
                     message["embed_model"] = str(getattr(embeddings_model, "model_name", embeddings_model) if not isinstance(embeddings_model, str) else embeddings_model)
-                    logger.error(f'[{_id}] SEND: embed_user_documents')
+                    logger.info(f'[{_id}] SEND: embed_user_documents')
                     end = time.time()
                     logger.error(f'[{_id}] embed_user_documents time: {end - start_time}')
                     
@@ -1584,7 +1603,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     uuids = [id for doc in documents for id in doc["uuids"]]
                     admin_user_guide = await get_admin_vector_db(db_key) 
                     await admin_user_guide.adelete(ids=uuids)
-                    logger.error(f'[{_id}] SEND: delete_documents')
+                    logger.info(f'[{_id}] SEND: delete_documents')
                     end = time.time()
                     logger.error(f'[{_id}] delete_documents time: {end - start_time}')
                     message["data_id"] = value["data_id"]
@@ -1660,7 +1679,7 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     message["embed_tokens"] = 0
                     message["embed_model"] = "text-embedding-3-small"
                     message["web_search_call"] = 0
-                    logger.error(f'[{_id}] SEND: get_research_type')
+                    logger.info(f'[{_id}] SEND: get_research_type')
                     end = time.time()
                     logger.error(f'[{_id}] get_research_type time: {end - start_time}')
                     

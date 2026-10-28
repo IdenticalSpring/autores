@@ -7,11 +7,16 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      # Giới hạn số job xử lý song song mỗi listener (mặc định code = 100)
+      LISTENER_CONCURRENCY: "${LISTENER_CONCURRENCY:-8}"
+    # Chặn 1 container ăn hết RAM host (4 listener chạy chung 1 process)
+    mem_limit: "${APP_MEM_LIMIT:-4g}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
     command: ["python", "main.py"]
     logging:
       driver: "json-file"
       options:
-        max-size: "10g"
-        max-file: "2"
+        max-size: "100m"
+        max-file: "3"

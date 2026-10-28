@@ -6,6 +6,7 @@ import operator
 from typing import Annotated
 from typing_extensions import TypedDict
 
+from exception_type import AIERROR
 from document_setup.src.modules.ingest_docs import VectorDBProcessor
 from document_setup.src.modules.outline_generation import OutlineGeneration
 from ai_chatbot.src.modules.ai_in_doc import AIInDoc
@@ -117,6 +118,13 @@ async def load_refs(state: State):
     admin = mongo_client["admin"]
     outlines_collection = admin["outlines"]
     doc_record = await outlines_collection.find_one({"documentId": state["document_id"]})
+    if doc_record is None:
+        # Trước đây: doc_record["code"] → 'NoneType' object is not subscriptable (error 653 khó hiểu)
+        raise AIERROR(
+            653,
+            f"Không tìm thấy outline cho document_id={state['document_id']}. "
+            "Cần tạo document/outline trước khi gọi event 'writer'.",
+        )
     logger.info(f"[{state['document_id'][:8]}] Load refs")
     research_papers, input_tokens, output_tokens, embed_tokens = await qdrant_processor.load_refs_chat(state["user_id"])
     

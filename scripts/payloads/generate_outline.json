@@ -1,0 +1,61 @@
+{
+  "event_type": "generate_outline",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "research_type": {
+    "type": 2
+  },
+  "word_count_str": "5000-8000",
+  "headings": [
+    {
+      "heading": "Mở đầu",
+      "subheadings": [
+        {"subheading": "Tính cấp thiết của đề tài"},
+        {"subheading": "Mục tiêu nghiên cứu"},
+        {"subheading": "Đối tượng và phạm vi nghiên cứu"}
+      ]
+    },
+    {
+      "heading": "Cơ sở lý luận và tổng quan nghiên cứu",
+      "subheadings": [
+        {"subheading": "Các khái niệm cơ bản về livestream bán hàng"},
+        {"subheading": "Hành vi người tiêu dùng trực tuyến"},
+        {"subheading": "Tổng quan các nghiên cứu liên quan"}
+      ]
+    },
+    {
+      "heading": "Phương pháp nghiên cứu",
+      "subheadings": [
+        {"subheading": "Quy trình nghiên cứu"},
+        {"subheading": "Phương pháp thu thập dữ liệu"},
+        {"subheading": "Phương pháp phân tích dữ liệu"}
+      ]
+    },
+    {
+      "heading": "Kết quả nghiên cứu và thảo luận",
+      "subheadings": [
+        {"subheading": "Thực trạng livestream bán hàng tại Việt Nam"},
+        {"subheading": "Phân tích các yếu tố tác động đến quyết định mua sắm"},
+        {"subheading": "Thảo luận kết quả"}
+      ]
+    },
+    {
+      "heading": "Kết luận và hàm ý quản trị",
+      "subheadings": [
+        {"subheading": "Kết luận chính"},
+        {"subheading": "Hàm ý quản trị cho doanh nghiệp"},
+        {"subheading": "Hạn chế và hướng nghiên cứu tương lai"}
+      ]
+    }
+  ],
+  "headings_percent": [0.15, 0.25, 0.2, 0.25, 0.15],
+  "final_proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "description": "Phân tích tác động của sự tương tác, độ tin cậy của người bán và tính khan hiếm đến hành vi mua sắm ngẫu hứng trên sàn thương mại điện tử"
+  }
+}

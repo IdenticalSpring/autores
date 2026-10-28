@@ -1,0 +1,18 @@
+{
+  "event_type": "generate_title_description",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "knowledge_base": [
+    {
+      "title": "AI trong giáo dục",
+      "content": "Ứng dụng AI trong giảng dạy và nghiên cứu."
+    }
+  ],
+  "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+  "level": "LUAN_VAN_THAC_SI"
+}

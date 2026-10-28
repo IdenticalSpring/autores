@@ -42,7 +42,7 @@ RESEARCH_TYPE = {
 
 
 class WriteSectionEventListener(BaseAsyncListener):
-    def __init__(self, topics, consumer_configs: dict, concurency: int = 100):
+    def __init__(self, topics, consumer_configs: dict, concurency: int | None = None):
         super().__init__(topics, consumer_configs, concurency)
         
     async def _handle_record(self, record: ConsumerRecord):
@@ -77,6 +77,29 @@ class WriteSectionEventListener(BaseAsyncListener):
                 _id = "admin"
             logger.error(f"[{_id}] Task timed out for document_id: {value['event_type']}")
             await self._finalize_task(None, False, _id, producer, response_topic, message, value["event_type"], True)
+        except Exception as e:
+            # Bug #17 (cùng loại): exception thoát khỏi handler ⇒ BE chỉ thấy timeout,
+            # không biết lỗi gì. Luôn publish response lỗi có đủ identifier.
+            _id = value.get("document_id") or value.get("conv_id") or "admin"
+            logger.error(f"[{_id}] Unhandled error for event {value.get('event_type')}: {e}")
+            logger.error(traceback.format_exc())
+            try:
+                producer = await get_producer()
+                message = {
+                    "event_type": value.get("event_type", ""),
+                    "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
+                    "error": str(e),
+                }
+                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                    if identifier in value:
+                        message[identifier] = value[identifier]
+                response_topic = (
+                    topics.WRITE_SECTION_RESPONSE if topic == topics.WRITE_SECTION_REQUEST
+                    else topics.WRITE_SECTION_RESPONSE_LOCAL
+                )
+                await self.send_message(producer, response_topic, message)
+            except Exception as publish_error:  # noqa: BLE001
+                logger.error(f"Failed to publish error response for {value.get('event_type')}: {publish_error}")
 
     async def check_interrupt(self, _id, chunk, message, outline_code, writer_graph, thread_id):
         interrupt_message = chunk["__interrupt__"][-1]

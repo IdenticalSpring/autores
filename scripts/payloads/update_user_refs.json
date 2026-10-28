@@ -1,0 +1,17 @@
+{
+  "document_id": "650000000000000000000001",
+  "language": "Tiếng Việt",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "650000000000000000000001",
+  "session_id": "smoke-session-update-refs",
+  "documents": [
+    {
+      "title": "Nghiên cứu về Livestream bán hàng và hành vi mua sắm",
+      "url": "users/sample/sample.pdf",
+      "source": "USER",
+      "authors": "Nguyen Van A",
+      "year": "2024",
+      "journal": "Tap chi Thuong mai Dien tu"
+    }
+  ]
+}
