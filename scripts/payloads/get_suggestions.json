@@ -1,0 +1,11 @@
+{
+  "event_type": "get_suggestions",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "conv_id": "",
+  "document_id": "",
+  "section": "Tổng quan nghiên cứu",
+  "section_context": "Nghiên cứu về ứng dụng AI trong giáo dục đại học tại Việt Nam.",
+  "processed_docs": [],
+  "language": "Vietnamese"
+}

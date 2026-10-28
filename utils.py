@@ -264,7 +264,7 @@ def get_embeddings(db_key: str = "", model_name: str = ""):
     effective_model = model_name or settings.EMBEDDING_MODEL or "BAAI/bge-small-en-v1.5"
     key = db_key or settings.OPEN_AI_KEY
 
-    if "bge" in effective_model.lower() or "fastembed" in effective_model.lower() or not key or key == "DUMMY_OPENAI_KEY":
+    if "bge" in effective_model.lower() or "fastembed" in effective_model.lower() or not key or key.startswith("DUMMY") or not key.startswith("sk-"):
         from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
         fastembed_model = effective_model if "bge" in effective_model.lower() else "BAAI/bge-small-en-v1.5"
         return FastEmbedEmbeddings(model_name=fastembed_model)
@@ -281,10 +281,27 @@ def get_embeddings(db_key: str = "", model_name: str = ""):
         )
 
 
+ADMIN_VECTOR_STORE = None
+
+
 async def get_admin_vector_db(db_key: str):
     global ADMIN_VECTOR_STORE
     if ADMIN_VECTOR_STORE is None:
         embeddings = get_embeddings(db_key)
+        try:
+            from qdrant_client import AsyncQdrantClient
+            from qdrant_client.models import VectorParams, Distance
+            qc = AsyncQdrantClient(url=settings.QDRANT_URL)
+            if not await qc.collection_exists("admin_user_guide"):
+                dim = 384 if not db_key or db_key.startswith("DUMMY") or not db_key.startswith("sk-") else 1536
+                await qc.create_collection(
+                    collection_name="admin_user_guide",
+                    vectors_config=VectorParams(size=dim, distance=Distance.COSINE)
+                )
+            await qc.close()
+        except Exception as e:
+            logger.warning(f"Could not verify/create admin_user_guide collection: {e}")
+
         ADMIN_VECTOR_STORE = QdrantVectorStore.from_existing_collection(
             url=settings.QDRANT_URL,
             collection_name="admin_user_guide",

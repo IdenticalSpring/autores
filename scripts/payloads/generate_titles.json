@@ -1,0 +1,16 @@
+{
+  "event_type": "generate_titles",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "subdomains": [
+    "Livestream bán hàng",
+    "Hành vi người tiêu dùng trực tuyến"
+  ],
+  "level": "LUAN_VAN_THAC_SI",
+  "use_web_search": false
+}

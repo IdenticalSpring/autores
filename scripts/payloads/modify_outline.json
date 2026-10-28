@@ -1,0 +1,33 @@
+{
+  "event_type": "modify_outline",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "research_type": {
+    "type": 2
+  },
+  "headings": [
+    "Mở đầu",
+    "Cơ sở lý luận",
+    "Phương pháp nghiên cứu",
+    "Kết quả và thảo luận",
+    "Kết luận"
+  ],
+  "headings_percent": [0.15, 0.25, 0.2, 0.25, 0.15],
+  "new_headings": [
+    "Mở đầu",
+    "Cơ sở lý luận và tổng quan nghiên cứu",
+    "Thiết kế và phương pháp nghiên cứu",
+    "Kết quả phân tích thực nghiệm",
+    "Kết luận và khuyến nghị"
+  ],
+  "new_headings_percent": [0.15, 0.25, 0.2, 0.25, 0.15],
+  "final_proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "description": "Phân tích tác động của livestream bán hàng"
+  }
+}

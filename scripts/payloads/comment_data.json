@@ -1,0 +1,29 @@
+{
+  "event_type": "comment_data",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "smoke-comment-doc",
+  "session_id": "smoke-comment-session",
+  "language": "Vietnamese",
+  "final_proposal": {
+    "title": "Nghiên cứu tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "description": "Phân tích mối quan hệ giữa các yếu tố livestream và quyết định mua hàng"
+  },
+  "data": {
+    "tuoi": [20, 22, 25, 30],
+    "thu_nhap": [5, 10, 15, 20],
+    "chi_tieu": [2, 5, 8, 12]
+  },
+  "variables": [
+    {
+      "name": "tuoi",
+      "type": "int",
+      "description": "Độ tuổi của người tham gia khảo sát"
+    },
+    {
+      "name": "thu_nhap",
+      "type": "int",
+      "description": "Thu nhập hàng tháng (triệu VNĐ)"
+    }
+  ]
+}

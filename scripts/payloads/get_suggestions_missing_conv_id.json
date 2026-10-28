@@ -1,0 +1,9 @@
+{
+  "event_type": "get_suggestions",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "smoke-neg-doc",
+  "section": "Tổng quan nghiên cứu",
+  "section_context": "Payload cố tình thiếu conv_id để kiểm tra bug #17.",
+  "language": "Vietnamese"
+}

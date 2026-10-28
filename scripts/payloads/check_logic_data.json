@@ -1,0 +1,20 @@
+{
+  "event_type": "check_logic_data",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "smoke-logic-doc",
+  "session_id": "smoke-logic-session",
+  "language": "Vietnamese",
+  "variables": [
+    {
+      "name": "tuoi",
+      "type": "int",
+      "description": "Độ tuổi của người tham gia khảo sát"
+    },
+    {
+      "name": "thu_nhap",
+      "type": "int",
+      "description": "Thu nhập hàng tháng (triệu VNĐ)"
+    }
+  ]
+}

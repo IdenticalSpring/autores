@@ -1,0 +1,11 @@
+{
+  "event_type": "generate_title_description_no_info",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "use_web_search": false,
+  "language": "Vietnamese",
+  "title": "Tác động của livestream bán hàng đến quyết định mua sắm",
+  "level": "LUAN_VAN_THAC_SI"
+}

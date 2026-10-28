@@ -40,6 +40,48 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 logger = logging.getLogger(__name__)
 
+# Level hợp lệ (khoá của CRITERIA / CRITERIA_MAP). BE phải gửi đúng một trong các giá trị này.
+DEFAULT_LEVEL = 'LUAN_VAN_THAC_SI'
+
+
+def _criteria_text(level: str) -> str:
+    """Trả mô tả tiêu chí theo level; fallback level mặc định nếu level lạ."""
+    text = CRITERIA.get(level)
+    if text is None:
+        logger.warning(f"[criteria] level='{level}' không có trong CRITERIA → dùng '{DEFAULT_LEVEL}'")
+        text = CRITERIA.get(DEFAULT_LEVEL, "")
+    return text
+
+
+def _criteria_schema(level: str):
+    """Trả schema tiêu chí theo level; fallback mặc định thay vì None.
+
+    Trước đây ``CRITERIA_MAP.get(level)`` trả None với level lạ ⇒ truyền None vào
+    ``llm.with_structured_output(None)`` ⇒ Gemini báo 'Unsupported tool type None'
+    (error 615/624 khó hiểu).
+    """
+    schema = CRITERIA_MAP.get(level)
+    if schema is None:
+        logger.warning(f"[criteria] level='{level}' không có schema → dùng '{DEFAULT_LEVEL}'")
+        schema = CRITERIA_MAP[DEFAULT_LEVEL]
+    return schema
+
+
+# BE có thể gửi "Vietnamese"/"vi"/"en"; LANGUAGE_KIT dùng khoá dạng "tiếng việt"/"english".
+_LANG_ALIASES = {
+    "vi": "tiếng việt", "vietnamese": "tiếng việt", "tiếng việt": "tiếng việt",
+    "en": "english", "english": "english",
+}
+_DEFAULT_LANG_KEY = "tiếng việt"
+
+
+def _lang_key(language: str) -> str:
+    key = _LANG_ALIASES.get((language or "").strip().lower())
+    if key not in LANGUAGE_KIT:
+        logger.warning(f"[lang] language='{language}' không có trong LANGUAGE_KIT → dùng '{_DEFAULT_LANG_KEY}'")
+        key = _DEFAULT_LANG_KEY
+    return key
+
 
 class IdeaGeneration(SearchWeb):
 
@@ -263,7 +305,7 @@ class IdeaGeneration(SearchWeb):
         start = time.time()
         content = f"""
         Important criteria must satisfy:
-        {CRITERIA.get(level)}
+        {_criteria_text(level)}
         Target field:
         {field}
         Target domain:
@@ -324,7 +366,7 @@ class IdeaGeneration(SearchWeb):
             init_time = time.time()
             content = f"""
             Important criteria must satisfy:
-            {CRITERIA.get(level)}
+            {_criteria_text(level)}
             Target field:
             {field}
             Target domain:
@@ -368,7 +410,7 @@ class IdeaGeneration(SearchWeb):
             total_output_tokens += output_tokens
             content = f"""
             Proposal's criteria:
-            {CRITERIA.get(level)}
+            {_criteria_text(level)}
             Target field:
             {field}
             Target domain:
@@ -383,9 +425,9 @@ class IdeaGeneration(SearchWeb):
             error, success, final_proposal_eval, input_tokens, output_tokens = await get_answer_with_schema(
                 self.id, 
                 self.llm, 
-                EVAL_PROMPT, 
-                content, 
-                CRITERIA_MAP.get(level)
+                EVAL_PROMPT,
+                content,
+                _criteria_schema(level)
             )
             if not success:
                 raise error
@@ -394,7 +436,7 @@ class IdeaGeneration(SearchWeb):
             eval_dict = final_proposal_eval.model_dump()
             eval_str = ""
             for count, (key, value) in enumerate(eval_dict.items()):
-                eval_str += f"<b>{count + 1}. {LANGUAGE_KIT[self.language.lower()][key]}:</b> {value}</br>"
+                eval_str += f"<b>{count + 1}. {LANGUAGE_KIT[_lang_key(self.language)].get(key, key)}:</b> {value}</br>"
             total_input_tokens += input_tokens
             total_output_tokens += output_tokens
             result_dict = final_proposal.model_dump()
@@ -489,7 +531,7 @@ class IdeaGeneration(SearchWeb):
         start = time.time()
         content = f"""
         Important criteria must satisfy:
-        {CRITERIA.get(level)}
+        {_criteria_text(level)}
         Target field:
         {field}
         Target domain:

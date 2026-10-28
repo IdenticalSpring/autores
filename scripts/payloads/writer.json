@@ -1,0 +1,22 @@
+{
+  "event_type": "writer",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "smoke-writer-doc",
+  "conv_id": "",
+  "session_id": "smoke-writer-session",
+  "chat_history": "[]",
+  "summary": {
+    "main_topic": "Ứng dụng AI trong giáo dục đại học",
+    "importance": "Nâng cao chất lượng đào tạo và nghiên cứu"
+  },
+  "outline": "1. Mở đầu\n2. Cơ sở lý thuyết\n3. Phương pháp\n4. Kết quả\n5. Kết luận",
+  "language": "Vietnamese",
+  "domain": "Giáo dục",
+  "field": "Công nghệ giáo dục",
+  "notes": [],
+  "use_web_search": false,
+  "max_research_iterations": 1,
+  "max_researcher_iterations": 1,
+  "max_concurrent_research_units": 1
+}

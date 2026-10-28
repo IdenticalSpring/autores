@@ -1,0 +1,12 @@
+{
+  "event_type": "writer_chatbot",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "conv_id": "",
+  "question": "Gợi ý cấu trúc đề cương cho nghiên cứu về AI trong giáo dục đại học.",
+  "language": "Vietnamese",
+  "resume": false,
+  "short_answer": true,
+  "use_web_search_chatbot": false,
+  "template_key": ""
+}

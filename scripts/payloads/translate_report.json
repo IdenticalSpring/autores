@@ -1,0 +1,9 @@
+{
+  "event_type": "translate_report",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "650000000000000000000001",
+  "session_id": "smoke-translate-session",
+  "is_outline": true,
+  "target_language": "English"
+}

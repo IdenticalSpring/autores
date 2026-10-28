@@ -485,13 +485,15 @@ async def _section_synthesizer(state: dict, section_count: int, num_subsection: 
 
 async def get_key_points(collection: AsyncCollection, papers: list[dict], document_id: str) -> tuple[list[dict], dict]:
     cached_data = await collection.find_one({"_id": document_id})
-    documents = cached_data["documents"]
-    doc_map = {d["title"]: d for d in documents if "title" in d}
+    documents = cached_data.get("documents", []) if cached_data else []
+    doc_map = {d["title"]: d for d in documents if isinstance(d, dict) and "title" in d}
     key_points_map = {}
     for paper in papers:
-        document = doc_map[paper["title"]]
-        paper["key_points"] = str(document["key_points"])
-        key_points_map[paper["title"]] = str(document["key_points"])
+        title = paper.get("title", "")
+        document = doc_map.get(title)
+        kp = str(document.get("key_points", "")) if document else ""
+        paper["key_points"] = kp
+        key_points_map[title] = kp
     return papers, key_points_map
 
 
@@ -543,7 +545,7 @@ async def load_current_section(state: dict):
             section["refs"] = []
 
     current_section_record = await content_collection.find_one({"documentId": state["document_id"], "index": len(state["other_sections"])})
-    current_section_refs = current_section_record["refTable"]
+    current_section_refs = current_section_record.get("refTable", []) if current_section_record else []
 
     if has_subheadings:
         subheading_map = {sub['subheading']: sub for sub in heading['subheadings']}
@@ -1052,6 +1054,16 @@ def _normalize_survey_questions(survey_questions: list[dict]) -> list[dict]:
     Returns: Always returns nested format
     Raises: KeyError/ValueError if data structure is invalid
     """
+    if not survey_questions:
+        return []
+
+    clean_survey_questions = []
+    for item in survey_questions:
+        if isinstance(item, str):
+            clean_survey_questions.append({"variable_name": "General", "variable_code": "GEN", "question": item})
+        elif isinstance(item, dict):
+            clean_survey_questions.append(item)
+    survey_questions = clean_survey_questions
     if not survey_questions:
         return []
 
@@ -2059,11 +2071,11 @@ async def write_method(
     web_search_content, web_search_call, total_input_tokens, total_output_tokens = await search_web(state)
     extra_content = f"Up-to-date information for the subsection:\n{web_search_content}" if web_search_content else ""
     method_log = [
-        f"Final model - log 0: {state['proposal']['final_model']}",
-        f"Hypotheses - log 1: {state['proposal']['hypothesis']}",
-        f"Variables - log 2: {state['proposal']['variables']}",
-        f"Survey questions - log 3: {state['proposal']['survey_questions']}",
-        f"Final questions - log 4: {state['proposal']['questions']}",
+        f"Final model - log 0: {state['proposal'].get('final_model', '')}",
+        f"Hypotheses - log 1: {state['proposal'].get('hypothesis', '')}",
+        f"Variables - log 2: {state['proposal'].get('variables', '')}",
+        f"Survey questions - log 3: {state['proposal'].get('survey_questions', '')}",
+        f"Final questions - log 4: {state['proposal'].get('questions', '')}",
     ]
     content = build_method_log_selection_content(method_log)
     error, success, logs, input_tokens, output_tokens = await get_answer_with_schema(

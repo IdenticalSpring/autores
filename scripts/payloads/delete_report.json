@@ -1,0 +1,7 @@
+{
+  "event_type": "delete_report",
+  "user_id": "smoke-user",
+  "session_id": "smoke-session-1",
+  "document_id": ["smoke-dummy-doc-1"],
+  "thread_id": ["smoke-dummy-thread-1"]
+}

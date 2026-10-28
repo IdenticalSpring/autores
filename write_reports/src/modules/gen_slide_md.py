@@ -14,6 +14,7 @@ from copy import deepcopy
 import io
 from write_reports.src.configs.app import settings
 from utils import get_s3_client
+from exception_type import AIERROR
 
 from write_reports.src.modules.gen_slide_prompt import (
     SUMMARIZER_SYSTEM_PROMPT,
@@ -244,7 +245,8 @@ def detect_heading_structure(content_subsections: List[str]) -> str:
 
 def build_slide_contents_from_markdown(
     markdown: str,
-    slide_layouts: Dict[str, Dict[str, Any]]
+    slide_layouts: Dict[str, Dict[str, Any]],
+    document_id: str = "",
 ) -> List[Tuple[str, Dict[str, str]]]:
     """
     Parse the raw Markdown string (structured with --- separators) into a slide_contents list
@@ -482,15 +484,21 @@ def build_slide_contents_from_markdown(
         if layout_key not in slide_layouts:
             logger.warning(f"Layout '{layout_key}' not in slide_layouts; skipping related slides.")
 
-    logger.info(f"[{state["document_id"][:8]}] Built slide_contents with {len(slide_contents)} entries from Markdown using {structure}.")
+    logger.info(f"[{_doc_tag(document_id)}] Built slide_contents with {len(slide_contents)} entries from Markdown using {structure}.")
     return slide_contents
+
+
+def _doc_tag(document_id: str) -> str:
+    """Tag ngắn để log, không phụ thuộc biến `state` (trước đây gây NameError)."""
+    return (document_id or "unknown")[:8]
 
 
 def create_presentation_from_markdown(
     template_path: str,
     markdown: str,
     slide_layouts: Dict[str, Dict[str, Any]],
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    document_id: str = "",
 ) -> Optional[bytes]:
     """
     Simplified Markdown-to-PPTX converter. Parses the structured Markdown into slide_contents,
@@ -508,16 +516,17 @@ def create_presentation_from_markdown(
     # Preprocess Markdown to handle duplicate thank-you slides
     markdown = preprocess_markdown(markdown)
     
-    slide_contents = build_slide_contents_from_markdown(markdown, slide_layouts)
-    print(slide_contents)
-    return create_presentation(template_path, slide_layouts, slide_contents, output_path)
+    slide_contents = build_slide_contents_from_markdown(markdown, slide_layouts, document_id)
+    logger.info(f"[{_doc_tag(document_id)}] slide_contents built: {len(slide_contents)} slide(s)")
+    return create_presentation(template_path, slide_layouts, slide_contents, output_path, document_id)
 
 
 def create_presentation(
     template_path: str,
     slide_layouts: Dict[str, Dict[str, any]],
     slide_contents: List[Tuple[str, Dict[str, str]]],
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    document_id: str = "",
 ) -> Optional[bytes]:
     """
     Creates a new PPTX presentation from a template by adding slides based on the provided layout keys
@@ -553,7 +562,7 @@ def create_presentation(
         if slide_index < len(prs.slides):
             original_slides[key] = prs.slides[slide_index]
         else:
-            logger.info(f"[{state["document_id"][:8]}] Warning: No slide found at index {slide_index} for layout '{key}'.")
+            logger.info(f"[{_doc_tag(document_id)}] Warning: No slide found at index {slide_index} for layout '{key}'.")
 
     len_original = len(prs.slides)
 
@@ -562,7 +571,7 @@ def create_presentation(
         if layout_key not in slide_layouts:
             raise ValueError(f"Layout key '{layout_key}' not found in slide_layouts.")
         if layout_key not in original_slides:
-            logger.info(f"[{state["document_id"][:8]}] Warning: No original slide for '{layout_key}', skipping.")
+            logger.info(f"[{_doc_tag(document_id)}] Warning: No original slide for '{layout_key}', skipping.")
             continue
 
         source_slide = original_slides[layout_key]
@@ -580,7 +589,7 @@ def create_presentation(
             new_el = deepcopy(el)
             new_slide.shapes._spTree.insert_element_before(new_el, 'p:extLst')
 
-        # logger.info(f"[{state["document_id"][:8]}] Added slide {len(prs.slides)} with layout '{layout_key}' (original content preserved)...")
+        # logger.info(f"[{_doc_tag(document_id)}] Added slide {len(prs.slides)} with layout '{layout_key}' (original content preserved)...")
 
         # Apply custom content_map if any
         if content_map:
@@ -594,7 +603,7 @@ def create_presentation(
                         for placeholder, new_text in content_map.items():
                             if trimmed_text == placeholder:
                                 run.text = new_text  # Direct overwrite for exact match
-                                # logger.info(f"[{state["document_id"][:8]}]   - Replaced exact '{placeholder}' with '{new_text}' in slide {len(prs.slides)}")
+                                # logger.info(f"[{_doc_tag(document_id)}]   - Replaced exact '{placeholder}' with '{new_text}' in slide {len(prs.slides)}")
                                 break  # Optional: Stop after first match per run (assuming one placeholder per run)
 
     # Remove the original slides (now at indices 0 to len_original-1)
@@ -606,7 +615,7 @@ def create_presentation(
     if output_path:
         # Save to physical file
         prs.save(output_path)
-        logger.info(f"[{state["document_id"][:8]}] \nPresentation rebuilt successfully and saved as {output_path}!")
+        logger.info(f"[{_doc_tag(document_id)}] \nPresentation rebuilt successfully and saved as {output_path}!")
         return None
     else:
         # Generate in-memory bytes buffer
@@ -615,7 +624,7 @@ def create_presentation(
         pptx_bytes = buffer.getvalue()
         buffer.close()
 
-        logger.info(f"[{state["document_id"][:8]}] \nPresentation rebuilt successfully ({len(pptx_bytes)} bytes generated in memory)!")
+        logger.info(f"[{_doc_tag(document_id)}] \nPresentation rebuilt successfully ({len(pptx_bytes)} bytes generated in memory)!")
         return pptx_bytes
     
 
@@ -654,6 +663,22 @@ Output must be a valid list like:
 
 async def fetch_html_content(state: State) -> Dict[str, Any]:
     # await send_health_check(state["document_id"], AIStatus.PROCESSING)
+    raw_report = (state.get("raw_report") or "").strip()
+    # BE có thể gửi URL (http/https) HOẶC nội dung HTML trực tiếp.
+    # Trước đây luôn coi là URL ⇒ payload HTML bị httpx báo
+    # "Request URL is missing an 'http://'..." và trả error 634.
+    if raw_report.startswith("<") or "<html" in raw_report[:200].lower():
+        logger.info(f"[{state['document_id'][:8]}] raw_report là HTML trực tiếp ({len(raw_report)} chars), bỏ qua HTTP fetch")
+        return {
+            "raw_html": raw_report,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        }
+    if not raw_report.startswith(("http://", "https://")):
+        raise AIERROR(
+            634,
+            f"raw_report phải là URL http(s) hoặc HTML trực tiếp, nhận được: {raw_report[:80]!r}",
+        )
     try:
         limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
         transport = httpx.AsyncHTTPTransport(retries=3) 
@@ -1181,7 +1206,7 @@ async def export_presentation(state: State) -> Dict[str, Any]:
     
     if custom_parsing:
         try:
-            pptx_bytes = create_presentation_from_markdown(template_path, final_slides, slide_layouts)
+            pptx_bytes = create_presentation_from_markdown(template_path, final_slides, slide_layouts, document_id=state["document_id"])
         except Exception as e:
             logger.error(f"[{state["document_id"][:8]}] PPTX generation failed: {e}")
             raise
@@ -1217,6 +1242,7 @@ async def export_presentation(state: State) -> Dict[str, Any]:
         # Step 3: Create presentation in memory
         try:
             pptx_bytes = create_presentation(
+                document_id=state["document_id"],
                 template_path=template_path,
                 slide_layouts=slide_layouts,  # Your global dict
                 slide_contents=slide_contents_list,

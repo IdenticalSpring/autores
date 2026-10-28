@@ -1,0 +1,11 @@
+{
+  "event_type": "gen_slides",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "smoke-slide-doc",
+  "session_id": "smoke-slide-session",
+  "raw_report": "<h1>Nghiên cứu livestream bán hàng</h1><h2>1. Mở đầu</h2><p>Livestream bán hàng là một hình thức thương mại điện tử mới nổi, mang lại trải nghiệm tương tác thời gian thực giữa người bán và người mua.</p><h2>2. Kết luận</h2><p>Livestream thúc đẩy đáng kể quyết định mua hàng, doanh nghiệp cần chú trọng nâng cao tính tương tác và chất lượng dịch vụ.</p>",
+  "user_preference": 1,
+  "manual_mode": false,
+  "language": "Vietnamese"
+}

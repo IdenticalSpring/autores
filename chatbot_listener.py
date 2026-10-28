@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
         
 class ChatbotEventListener(BaseAsyncListener):
-    def __init__(self, topics, consumer_configs: dict, concurency: int = 100):
+    def __init__(self, topics, consumer_configs: dict, concurency: int | None = None):
         super().__init__(topics, consumer_configs, concurency)
         
     async def _handle_record(self, record: ConsumerRecord):
@@ -62,28 +62,64 @@ class ChatbotEventListener(BaseAsyncListener):
                 _id = "admin"
             logger.error(f"[{_id}] Task timed out for event: {value["event_type"]}")
             await self._finalize_task(None, False, _id, producer, response_topic, message, value["event_type"], True)
+        except Exception as e:
+            # Bug #17: exception thoát khỏi handler ⇒ KHÔNG publish response ⇒ BE timeout 300s.
+            # Mọi lỗi phải được trả về dưới dạng response có đủ identifier.
+            _id = value.get("document_id") or value.get("conv_id") or "admin"
+            logger.error(f"[{_id}] Unhandled error for event {value.get('event_type')}: {e}")
+            logger.error(traceback.format_exc())
+            try:
+                producer = await get_producer()
+                message = {
+                    "event_type": value.get("event_type", ""),
+                    "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
+                    "error": str(e),
+                }
+                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                    if identifier in value:
+                        message[identifier] = value[identifier]
+                response_topic = (
+                    topics.CHATBOT_RESPONSE if topic == topics.CHATBOT_REQUEST
+                    else topics.CHATBOT_RESPONSE_LOCAL
+                )
+                await self.send_message(producer, response_topic, message)
+            except Exception as publish_error:  # noqa: BLE001
+                logger.error(f"Failed to publish error response for {value.get('event_type')}: {publish_error}")
 
     async def _handle_chatbot_event(self, topic, value_str):
         start_time = time.time()
         value = json.loads(value_str)
         producer = await get_producer()
-        if value["event_type"] == AIEvent.WRITER:
-            _id = value["document_id"]
+        # `_id` phải lấy bằng .get(): trước đây `value["conv_id"]` nằm NGOÀI khối try
+        # ⇒ KeyError thoát ra worker ⇒ KHÔNG publish response ⇒ BE timeout 300s (bug #17).
+        if value.get("event_type") == AIEvent.WRITER:
+            _id = value.get("document_id", "")
             await send_health_check(id=_id, status=AIStatus.PROCESSING)
         else:
-            _id = value["conv_id"]
-        
+            _id = value.get("conv_id") or value.get("document_id") or "unknown"
+
         try:
             event_type = value["event_type"]
             model_id = value["model_id"]
             language = value["language"]
+            # `conv_id` là bắt buộc với mọi event chatbot ngoài `writer`
+            if event_type != AIEvent.WRITER and not value.get("conv_id"):
+                raise KeyError("conv_id")
             message = {
                 "model_id": model_id,
                 "event_type": event_type,
             }
             llm_key, db_key, search_web_key = await self.get_key(model_id)
         except KeyError as e:
-            message = {"error_code": Error.INVALID_PARAMS, "error": f"Missing field '{str(e)}'"}
+            # Echo lại identifier để BE ghép được request (nếu không sẽ timeout dù AI đã trả lời)
+            message = {
+                "error_code": Error.INVALID_PARAMS,
+                "error": f"Missing field '{str(e)}'",
+                "event_type": value.get("event_type"),
+            }
+            for key in ("document_id", "conv_id", "user_id", "session_id"):
+                if value.get(key):
+                    message[key] = value[key]
             # await send_health_check(id=_id, status=AIStatus.ERROR, error=message["error_code"], error_message=message["error"])
             await self.send_message(producer, topic, message)
             return
@@ -733,8 +769,12 @@ class ChatbotEventListener(BaseAsyncListener):
             logger.error(f"[{_id}] Wrong event_type - event {event_type}")
             message["error_code"] = Error.EVENT_NOT_FOUND
             message["error"] = f"Wrong event_type - event {event_type}"
+            # Echo identifier để BE ghép được request (nếu không sẽ chỉ thấy timeout)
+            for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                if value.get(identifier):
+                    message[identifier] = value[identifier]
             # await send_health_check(id=_id, status=AIStatus.ERROR, error=message["error_code"], error_message=message["error"])
-            await self.send_message(producer, topic, message)     
+            await self.send_message(producer, topic, message)
 
 
 async def start_listener(topics, group_id):

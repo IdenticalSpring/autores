@@ -1,0 +1,13 @@
+{
+  "user_id": "650000000000000000000001",
+  "document_id": "650000000000000000000002",
+  "session_id": "smoke-session-embed-docs",
+  "model_id": "gemini-3.5-flash-lite",
+  "language": "Tiếng Việt",
+  "processed_docs": [
+    {
+      "url": "users/sample/sample.pdf",
+      "title": "Nghiên cứu về Livestream bán hàng và hành vi mua sắm"
+    }
+  ]
+}

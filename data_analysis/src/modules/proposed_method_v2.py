@@ -1099,12 +1099,11 @@ async def _node_assistant(
     """
     logger.info(f"[{state['document_id'][:8]}] Entering assistant for node: {node_name}")
     
-    llm = get_llm(state["model_id"], state["llm_key"], state["max_tokens"])
-    fixed_model = "gpt-4.1-2025-04-14"
-    if node_name == "model_recommend" or node_name == "recommend_assumptions" or node_name == "recommend_survey":
-        llm = get_llm(
-            fixed_model, state["llm_key"], state["max_tokens"], reasoning_effort='none'
-        )
+    model_name = state["model_id"]
+    if model_name.startswith("gpt-") and node_name in ["model_recommend", "recommend_assumptions", "recommend_survey"]:
+        llm = get_llm("gpt-4.1-2025-04-14", state["llm_key"], state["max_tokens"], reasoning_effort='none')
+    else:
+        llm = get_llm(model_name, state["llm_key"], state["max_tokens"])
     llm_with_tool = llm.bind_tools([handoff_to_confirm])
     
     assistant_message_key = get_assistant_message_key(node_name)
@@ -1264,8 +1263,8 @@ async def _node_assistant(
     base_model = state["model_id"]
     target_model = base_model
 
-    if node_name == "model_recommend" or node_name == "recommend_assumptions" or node_name == "recommend_variables":
-        target_model = fixed_model
+    if base_model.startswith("gpt-") and node_name in ["model_recommend", "recommend_assumptions", "recommend_variables"]:
+        target_model = "gpt-4.1-2025-04-14"
         input_tokens, output_tokens = calculate_token_scaling(
             input_tokens, output_tokens, target_model, base_model
         )

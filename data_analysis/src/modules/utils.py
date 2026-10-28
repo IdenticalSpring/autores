@@ -2206,6 +2206,19 @@ def process_text_with_sketch(text: str) -> str:
     Returns:
         str: The processed text with matching sketch blocks replaced by Mermaid blocks.
     """
+    if isinstance(text, list):
+        text_parts = []
+        for part in text:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and "text" in part:
+                text_parts.append(str(part["text"]))
+            else:
+                text_parts.append(str(part))
+        text = "".join(text_parts)
+    elif not isinstance(text, str):
+        text = str(text) if text is not None else ""
+
     def is_sketch_content(content: str) -> bool:
         """Quick check if content looks like a sketch (has key sections)."""
         lines = [line.strip() for line in content.split('\n') if line.strip()]

@@ -1,0 +1,43 @@
+{
+  "event_type": "write_content",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "650000000000000000000001",
+  "session_id": "smoke-write-session",
+  "thread_id": "smoke-write-thread-1",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "references_style": "APA",
+  "final_proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "description": "Phân tích tác động của livestream bán hàng đến quyết định mua sắm"
+  },
+  "papers_search": [
+    {
+      "title": "Nghiên cứu về Livestream bán hàng và hành vi mua sắm",
+      "abstract": "Livestream bán hàng là một hình thức thương mại điện tử mới nổi tác động mạnh mẽ đến người tiêu dùng.",
+      "source": "USER",
+      "ref_id": "ref-paper-1"
+    }
+  ],
+  "outline": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm của người tiêu dùng",
+    "outline": [
+      {
+        "heading": "1. Mở đầu",
+        "word_count": "500-1000",
+        "overview": "Tổng quan bối cảnh nghiên cứu",
+        "subheadings": [
+          {
+            "subheading": "1.1. Tính cấp thiết của đề tài",
+            "detail_description": "Trình bày lý do chọn đề tài livestream bán hàng"
+          }
+        ]
+      }
+    ]
+  },
+  "outline_code": [
+    "SECTION_1"
+  ]
+}

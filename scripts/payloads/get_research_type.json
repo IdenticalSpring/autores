@@ -1,0 +1,13 @@
+{
+  "event_type": "get_research_type",
+  "model_id": "gemini-3.5-flash-lite",
+  "user_id": "smoke-user",
+  "document_id": "",
+  "session_id": "",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm"
+  }
+}
