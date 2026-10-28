@@ -15,6 +15,8 @@ from data_analysis.src.modules.analyzer import Analyzer
 
 from write_reports.src.configs.app import settings
 from write_reports.src.modules.translate import Translator
+from write_reports.src.modules.edit_report import edit_report, validate_edit_report_input
+from data_analysis.src.modules.parsed_value import parse_values, validate_parsed_value_input
 from write_reports.src.modules.seminar_graph_1 import get_graph as get_graph_seminar_1
 from write_reports.src.modules.seminar_graph_2 import get_graph as get_graph_seminar_2
 from write_reports.src.modules.seminar_graph_3 import get_graph as get_graph_seminar_3
@@ -1758,6 +1760,91 @@ class WriteSectionEventListener(BaseAsyncListener):
                 except Exception as e:
                     logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")
                     message["error_code"] = WriteSectionError.PROPOSE_METHOD
+                    message["error"] = str(e)
+                    logger.error(traceback.format_exc())
+        elif event_type == WriteEvent.EDIT_REPORT:
+            try:
+                model_id = value["model_id"]
+                language = value.get("language", "Vietnamese")
+                content = value["content"]
+                instruction = value["instruction"]
+                section_name = value.get("section_name", "")
+                edit_context = value.get("context", "")
+                self.field_validate_str({"model_id": model_id, "language": language})
+                validate_edit_report_input(content, instruction, section_name, edit_context)
+                message["section_name"] = section_name
+            except KeyError as e:
+                message["error_code"] = Error.INVALID_PARAMS
+                message["error"] = f"Missing field '{str(e)}'"
+            except ValueError as e:
+                message["error_code"] = Error.INVALID_PARAMS
+                message["error"] = str(e)
+            if "error_code" not in message:
+                try:
+                    edited, input_tokens, output_tokens = await edit_report(
+                        _id, model_id, llm_key, MAX_TOKENS_DICT.get(event_type, 5000),
+                        language, content, instruction, section_name, edit_context,
+                    )
+                    message["content"] = edited
+                    message["input_tokens"] = input_tokens
+                    message["output_tokens"] = output_tokens
+                    message["web_search_call"] = 0
+                    message["embed_tokens"] = 0
+                    message["embed_model"] = "text-embedding-3-small"
+                    logger.info(f"[{_id}] SEND: EDIT_REPORT")
+                    task_success = True
+                except AIERROR as e:
+                    logger.error(f"[{_id}] LLM failed for document_id: {document_id} - event {event_type}")
+                    message["error_code"] = e.status_code
+                    message["error"] = e.message
+                    logger.error(traceback.format_exc())
+                except NotImplementedError:
+                    message["error_code"] = Error.NOT_IMPLEMENT_MODEL
+                    message["error"] = f"Currently no support for model {model_id} for document_id: {document_id} - event {event_type}"
+                except Exception as e:
+                    logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")
+                    message["error_code"] = WriteSectionError.EDIT_REPORT
+                    message["error"] = str(e)
+                    logger.error(traceback.format_exc())
+        elif event_type == WriteEvent.PARSED_VALUE:
+            try:
+                model_id = value["model_id"]
+                language = value.get("language", "Vietnamese")
+                survey_questions = value["survey_questions"]
+                variables_data = value.get("variables", [])
+                self.field_validate_str({"model_id": model_id, "language": language})
+                validate_parsed_value_input(survey_questions, variables_data)
+            except KeyError as e:
+                message["error_code"] = Error.INVALID_PARAMS
+                message["error"] = f"Missing field '{str(e)}'"
+            except ValueError as e:
+                message["error_code"] = Error.INVALID_PARAMS
+                message["error"] = str(e)
+            if "error_code" not in message:
+                try:
+                    parsed_variables, input_tokens, output_tokens = await parse_values(
+                        _id, model_id, llm_key, MAX_TOKENS_DICT.get(event_type, 5000),
+                        language, variables_data, survey_questions,
+                    )
+                    message["parsed_variables"] = parsed_variables
+                    message["input_tokens"] = input_tokens
+                    message["output_tokens"] = output_tokens
+                    message["web_search_call"] = 0
+                    message["embed_tokens"] = 0
+                    message["embed_model"] = "text-embedding-3-small"
+                    logger.info(f"[{_id}] SEND: PARSED_VALUE")
+                    task_success = True
+                except AIERROR as e:
+                    logger.error(f"[{_id}] LLM failed for document_id: {document_id} - event {event_type}")
+                    message["error_code"] = e.status_code
+                    message["error"] = e.message
+                    logger.error(traceback.format_exc())
+                except NotImplementedError:
+                    message["error_code"] = Error.NOT_IMPLEMENT_MODEL
+                    message["error"] = f"Currently no support for model {model_id} for document_id: {document_id} - event {event_type}"
+                except Exception as e:
+                    logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")
+                    message["error_code"] = WriteSectionError.PARSED_VALUE
                     message["error"] = str(e)
                     logger.error(traceback.format_exc())
         else:

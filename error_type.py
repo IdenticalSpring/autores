@@ -60,6 +60,7 @@ class WriteSectionError(int, Enum):
     DELETE_REPORT = 640
     TRANSLATE_REPORT = 641
     CHECK_LOGIC_DATA = 642
+    EDIT_REPORT = 643
 
 
 class ChatbotError(int, Enum):
@@ -111,6 +112,7 @@ ERROR_DICT = {
     "delete_report": 640,
     "translate_report": 641,
     "check_logic_data": 642,
+    "edit_report": 643,
     # CHATBOT
     "outer_chatbot": 650,
     "inner_chatbot": 651,
@@ -150,6 +152,7 @@ TIME_OUT_DICT = {
     "comment_data": 300,
     "propose_method": 300,
     "parsed_value": 300,
+    "edit_report": 300,
     # CHATBOT
     "outer_chatbot": 120,
     "inner_chatbot": 120,
@@ -186,6 +189,8 @@ MAX_TOKENS_DICT = {
     "comment_data": 2000,
     "propose_method": 5000,
     "translate_report": 5000,
+    "edit_report": 5000,
+    "parsed_value": 5000,
     # CHATBOT
     "outer_chatbot": 2000,
     "inner_chatbot": 2000,

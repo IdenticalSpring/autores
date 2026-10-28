@@ -2,8 +2,34 @@
   "event_type": "parsed_value",
   "model_id": "gemini-3.5-flash-lite",
   "user_id": "smoke-user",
-  "document_id": "",
-  "session_id": "",
-  "section": "Tổng quan",
-  "language": "Vietnamese"
+  "document_id": "650000000000000000000001",
+  "session_id": "smoke-session",
+  "language": "Vietnamese",
+  "variables": [],
+  "survey_questions": [
+    {
+      "variable_name": "Sự hài lòng",
+      "variable_code": "HL",
+      "variable_type": "Phụ thuộc",
+      "measurement_type": "Tiềm ẩn",
+      "questions": "Bạn hài lòng với dịch vụ ngân hàng số?",
+      "answer_content": "Thang Likert 1-5"
+    },
+    {
+      "variable_name": "Sự hài lòng",
+      "variable_code": "HL",
+      "variable_type": "Phụ thuộc",
+      "measurement_type": "Tiềm ẩn",
+      "questions": "Bạn sẽ giới thiệu dịch vụ cho người khác?",
+      "answer_content": "Thang Likert 1-5"
+    },
+    {
+      "variable_name": "Tuổi",
+      "variable_code": "TUOI",
+      "variable_type": "Độc lập",
+      "measurement_type": "Quan sát",
+      "questions": "Bạn bao nhiêu tuổi?",
+      "answer_content": "Số nguyên"
+    }
+  ]
 }
