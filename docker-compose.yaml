@@ -8,10 +8,10 @@ services:
     env_file:
       - .env
     environment:
-      # Giới hạn số job xử lý song song mỗi listener (mặc định code = 100)
-      LISTENER_CONCURRENCY: "${LISTENER_CONCURRENCY:-8}"
-    # Chặn 1 container ăn hết RAM host (4 listener chạy chung 1 process)
-    mem_limit: "${APP_MEM_LIMIT:-4g}"
+      # Giới hạn số job xử lý song song mỗi listener (tối ưu server 2-4 vCPU, tiết kiệm RAM)
+      LISTENER_CONCURRENCY: "${LISTENER_CONCURRENCY:-3}"
+    # Chặn 1 container ăn hết RAM host (tối ưu cho VPS 4GB-8GB)
+    mem_limit: "${APP_MEM_LIMIT:-2.5g}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
     command: ["python", "main.py"]

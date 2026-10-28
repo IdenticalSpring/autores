@@ -12,6 +12,7 @@ services:
     image: apache/kafka:3.8.0
     container_name: autoresearching-kafka
     restart: unless-stopped
+    mem_limit: 1024m
     ports:
       - "9092:9092"
     environment:
@@ -29,6 +30,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms256M"
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
@@ -41,12 +43,15 @@ services:
       start_period: 15s
 
   # ==============================================================================
-  # 2. KAFKA UI (Giao diện web trực quan để theo dõi message Kafka)
+  # 2. KAFKA UI (Chỉ bật khi cần debug qua profile 'debug', tiết kiệm 400MB RAM)
   # ==============================================================================
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: autoresearching-kafka-ui
     restart: unless-stopped
+    profiles:
+      - debug
+    mem_limit: 512m
     ports:
       - "8080:8080"
     environment:
@@ -65,10 +70,11 @@ services:
     image: redis/redis-stack-server:latest
     container_name: autoresearching-redis
     restart: unless-stopped
+    mem_limit: 512m
     ports:
       - "6379:6379"
     environment:
-      REDIS_ARGS: "--requirepass redis_password_local"
+      REDIS_ARGS: "--requirepass redis_password_local --maxmemory 256mb --maxmemory-policy allkeys-lru"
     volumes:
       - redis_data:/data
     networks:
@@ -86,6 +92,8 @@ services:
     image: mongo:7.0
     container_name: autoresearching-mongodb
     restart: unless-stopped
+    mem_limit: 1024m
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
     ports:
       - "27017:27017"
     environment:
@@ -108,6 +116,7 @@ services:
     image: qdrant/qdrant:v1.12.1
     container_name: autoresearching-qdrant
     restart: unless-stopped
+    mem_limit: 800m
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -128,6 +137,7 @@ services:
     image: elestio/minio:latest
     container_name: autoresearching-minio
     restart: unless-stopped
+    mem_limit: 512m
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -152,6 +162,7 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: autoresearching-litellm
     restart: unless-stopped
+    mem_limit: 768m
     ports:
       - "8000:8000"
     environment:

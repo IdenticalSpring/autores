@@ -104,6 +104,14 @@ view_logs() {
   docker logs -f --tail 150 "$CONTAINER"
 }
 
+show_stats() {
+  require_docker
+  echo -e "\n${CYAN}${BOLD}📈 MỨC TIÊU THỤ TÀI NGUYÊN HIỆN TẠI (RAM / CPU)${NC}"
+  echo "------------------------------------------------------------"
+  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+  echo "------------------------------------------------------------"
+}
+
 main_menu() {
   while true; do
     echo ""
@@ -115,13 +123,14 @@ main_menu() {
     echo -e "  ${BOLD}[3]${NC} 🐳 Build Docker Image (${IMAGE})"
     echo -e "  ${BOLD}[4]${NC} 🤖 Khởi động AI Container (Chạy 4 listeners chung 1 process)"
     echo -e "  ${BOLD}[5]${NC} 📊 Kiểm tra Trạng thái & Cổng dịch vụ (Health Check)"
-    echo -e "  ${BOLD}[6]${NC} 📜 Xem Logs thời gian thực (Realtime Logs)"
-    echo -e "  ${BOLD}[7]${NC} 🔄 Khởi động lại AI Container (Restart)"
-    echo -e "  ${BOLD}[8]${NC} ⏸️  Dừng AI Container"
-    echo -e "  ${BOLD}[9]${NC} 🛑 Dừng toàn bộ (AI Container + Hạ tầng)"
+    echo -e "  ${BOLD}[6]${NC} 📈 Xem Mức Tiêu Thụ RAM / CPU (Resource Stats)"
+    echo -e "  ${BOLD}[7]${NC} 📜 Xem Logs thời gian thực (Realtime Logs)"
+    echo -e "  ${BOLD}[8]${NC} 🔄 Khởi động lại AI Container (Restart)"
+    echo -e "  ${BOLD}[9]${NC} ⏸️  Dừng AI Container"
+    echo -e "  ${BOLD}[10]${NC} 🛑 Dừng toàn bộ (AI Container + Hạ tầng)"
     echo -e "  ${BOLD}[0]${NC} 🚪 Thoát"
     echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
-    read -rp "👉 Chọn tác vụ [0-9]: " choice
+    read -rp "👉 Chọn tác vụ [0-10]: " choice
 
     case "$choice" in
       1) full_deploy ;;
@@ -129,10 +138,11 @@ main_menu() {
       3) build_image ;;
       4) start_app ;;
       5) health_check ;;
-      6) view_logs ;;
-      7) restart_app ;;
-      8) stop_app ;;
-      9) stop_all ;;
+      6) show_stats ;;
+      7) view_logs ;;
+      8) restart_app ;;
+      9) stop_app ;;
+      10) stop_all ;;
       0) echo -e "\n${GREEN}Tạm biệt! Dịch vụ vẫn tiếp tục chạy trên Docker.${NC}\n"; exit 0 ;;
       *) echo -e "${RED}Lựa chọn không hợp lệ. Vui lòng chọn lại!${NC}" ;;
     esac
@@ -154,10 +164,11 @@ else
     restart)     restart_app ;;
     stop)        stop_app ;;
     status|health) health_check ;;
+    stats)       show_stats ;;
     logs)        docker logs -f --tail 200 "${2:-$CONTAINER}" ;;
     all)         full_deploy ;;
     help|-h|--help)
-      echo "Cách dùng: ./deploy.sh [build|up|infra-up|infra-down|restart|stop|health|logs|all]"
+      echo "Cách dùng: ./deploy.sh [build|up|infra-up|infra-down|restart|stop|health|stats|logs|all]"
       ;;
     *)
       echo -e "${RED}[ERR] Lệnh không hợp lệ: $cmd${NC}"
