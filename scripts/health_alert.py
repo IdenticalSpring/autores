@@ -32,14 +32,16 @@ from document_setup.src.configs.app import settings  # noqa: E402
 GROUPS: dict[str, list[str]] = {
     "document_setup_05_20_2025": [topics.DOCUMENT_SETUP_REQUEST],
     "write_section_05_20_2025": [topics.WRITE_SECTION_REQUEST],
-    "chatbot_09_06_2025": [topics.CHATBOT_REQUEST, topics.ENHANCEMENT_REQUEST],
+    "chatbot_09_06_2025": [topics.CHATBOT_REQUEST],
+    "enhancement_09_06_2025": [topics.ENHANCEMENT_REQUEST],
 }
 
-# Số lượng listener member kỳ vọng cho từng group (chatbot có 2 listener: chatbot & enhance)
+# Số lượng listener member kỳ vọng cho từng group (mỗi group 1 listener độc lập)
 EXPECTED_MEMBERS: dict[str, int] = {
     "document_setup_05_20_2025": 1,
     "write_section_05_20_2025": 1,
-    "chatbot_09_06_2025": 2,
+    "chatbot_09_06_2025": 1,
+    "enhancement_09_06_2025": 1,
 }
 
 

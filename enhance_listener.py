@@ -32,10 +32,10 @@ class EnhancementEventListener(BaseAsyncListener):
             match topic:
                 case topics.ENHANCEMENT_REQUEST:
                     response_topic = topics.ENHANCEMENT_RESPONSE
-                    await asyncio.wait_for(self._handle_enhancement_event(topics.ENHANCEMENT_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                    await asyncio.wait_for(self._handle_enhancement_event(topics.ENHANCEMENT_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
                 case topics.ENHANCEMENT_REQUEST_LOCAL:
                     response_topic = topics.ENHANCEMENT_RESPONSE_LOCAL
-                    await asyncio.wait_for(self._handle_enhancement_event(topics.ENHANCEMENT_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                    await asyncio.wait_for(self._handle_enhancement_event(topics.ENHANCEMENT_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
         except asyncio.TimeoutError:
             producer = await get_producer()
             message = {

@@ -54,13 +54,13 @@ class DocumentSetupEventListener(BaseAsyncListener):
                     if value["event_type"] in [DocumentSetupEvent.EMBED_USER_DOCUMENTS, DocumentSetupEvent.USER_DOCUMENTS, DocumentSetupEvent.ADMIN_DOCUMENTS, DocumentSetupEvent.USER_GUIDE_DOCUMENTS, DocumentSetupEvent.GENERATE_OUTLINE_WITH_REFS]:
                         await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE, value_str, 3600), timeout=3600)
                     else:
-                        await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                        await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
                 case topics.DOCUMENT_SETUP_REQUEST_LOCAL:
                     response_topic = topics.DOCUMENT_SETUP_RESPONSE_LOCAL
                     if value["event_type"] in [DocumentSetupEvent.EMBED_USER_DOCUMENTS, DocumentSetupEvent.USER_DOCUMENTS, DocumentSetupEvent.ADMIN_DOCUMENTS, DocumentSetupEvent.USER_GUIDE_DOCUMENTS, DocumentSetupEvent.GENERATE_OUTLINE_WITH_REFS]:
                         await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE_LOCAL, value_str, 3600), timeout=3600)
                     else:
-                        await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                        await asyncio.wait_for(self._handle_document_setup_event(topics.DOCUMENT_SETUP_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
         except asyncio.TimeoutError:
             producer = await get_producer()
             message = {

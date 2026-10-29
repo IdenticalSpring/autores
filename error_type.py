@@ -61,6 +61,9 @@ class WriteSectionError(int, Enum):
     TRANSLATE_REPORT = 641
     CHECK_LOGIC_DATA = 642
     EDIT_REPORT = 643
+    # Fallback / compatibility aliases
+    INVALID_PARAMS = 603
+    NOT_IMPLEMENT_MODEL = 605
 
 
 class ChatbotError(int, Enum):
@@ -127,42 +130,42 @@ ERROR_DICT = {
 
 TIME_OUT_DICT = {
     # DOCUMENT SETUP
-    "search_papers": 180,
-    "generate_domains": 60,
-    "generate_subdomains": 60,
-    "generate_keywords": 60,
-    "generate_titles": 300,
-    "generate_title_description": 300,
-    "mix_titles": 300,
-    "generate_outline": 1200,
+    "search_papers": 300,
+    "generate_domains": 120,
+    "generate_subdomains": 120,
+    "generate_keywords": 120,
+    "generate_titles": 420,
+    "generate_title_description": 420,
+    "mix_titles": 420,
+    "generate_outline": 1500,
     "admin_documents": 0,
     "user_guide_documents": 0,
     "user_documents": 0,
     "embed_user_documents": 0,
     "get_journals": 900,
-    "get_research_type": 60,
+    "get_research_type": 120,
     # WRITE SECTION
-    "write_content": 1500,
-    "analyzer": 300,
-    "analyzer_tool": 300,
-    "chuyen_de_1": 1500,
-    "chuyen_de_2": 1500,
-    "gen_slides": 300,
-    "chuyen_de_3": 1500,
-    "comment_data": 300,
-    "propose_method": 300,
-    "parsed_value": 300,
-    "edit_report": 300,
+    "write_content": 1800,
+    "analyzer": 420,
+    "analyzer_tool": 420,
+    "chuyen_de_1": 1800,
+    "chuyen_de_2": 1800,
+    "gen_slides": 420,
+    "chuyen_de_3": 1800,
+    "comment_data": 420,
+    "propose_method": 420,
+    "parsed_value": 420,
+    "edit_report": 420,
     # CHATBOT
-    "outer_chatbot": 120,
-    "inner_chatbot": 120,
-    "writer_chatbot": 120,
-    "writer": 1500,
+    "outer_chatbot": 240,
+    "inner_chatbot": 240,
+    "writer_chatbot": 240,
+    "writer": 1800,
     # ENHANCEMENT
-    "ai_in_doc": 120,
-    "get_suggestions": 120,
-    "enhance": 120,
-    "enhance_all": 120
+    "ai_in_doc": 240,
+    "get_suggestions": 240,
+    "enhance": 240,
+    "enhance_all": 240
 }
 
 MAX_TOKENS_DICT = {
