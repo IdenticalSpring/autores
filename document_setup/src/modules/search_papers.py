@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 import httpx
 import requests
@@ -142,7 +144,7 @@ class SearchPapers(SearchJournal):
             "status_forcelist": [429, 500, 503],
         }
         limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-        transport = httpx.AsyncHTTPTransport(retries=3)
+        transport = httpx.AsyncHTTPTransport(retries=2)
 
         # Prepare search query (supports Vietnamese and all languages directly)
         search_query = query
@@ -199,77 +201,99 @@ class SearchPapers(SearchJournal):
 
         logger.info(f"[{self}] OpenAlex URL: {url}")
 
-        try:
-            async with httpx.AsyncClient(limits=limits, transport=transport, auth=OpenAlexAuth(config), timeout=(5.0, 10.0)) as client:
-                result = await client.get(url)
-                result.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-                res = result.json()
-            for work in res["results"]:
-                if work["title"] not in list_papers_title:
-                    paper = {}
-                    if work["title"] == "Unknown" or work["title"] == "None" or not work["title"]:
-                        continue
-                    paper["title"] = work["title"]
-                    paper["source"] = "open_alex"
+        cache_key = f"openalex:search:{hashlib.sha256(url.encode()).hexdigest()}"
+        res = None
+        if self.redis_client:
+            try:
+                cached_bytes = await self.redis_client.get(cache_key)
+                if cached_bytes:
+                    res = json.loads(cached_bytes)
+                    logger.info(f"[{self}] OpenAlex cache HIT for {search_query[:30]}")
+            except Exception as ce:
+                logger.warning(f"[{self}] Redis cache read error: {ce}")
+
+        if res is None:
+            http_timeout = httpx.Timeout(connect=5.0, read=12.0, write=5.0, pool=5.0)
+            try:
+                async with httpx.AsyncClient(limits=limits, transport=transport, auth=OpenAlexAuth(config), timeout=http_timeout) as client:
+                    result = await client.get(url)
+                    result.raise_for_status()
+                    res = result.json()
+                if self.redis_client and res.get("results"):
                     try:
-                        paper["abs"] = " ".join(list(work["abstract_inverted_index"].keys())) if len(list(work["abstract_inverted_index"].keys())) > 100 else ""
-                    except Exception:
-                        paper["abs"] = ""
-                    if cut_off_year_low:
-                        if int(work["publication_year"]) < cut_off_year_low:
-                            continue
-                    if cut_off_year_high:
-                        if int(work["publication_year"]) > cut_off_year_high:
-                            continue
-                    if work["open_access"]["is_oa"]:
-                        paper["open_access"] = True
-                        paper["url"] = work["open_access"]["oa_url"]
-                    else:
-                        paper["open_access"] = False
-                        paper["url"] = work["primary_location"]["landing_page_url"]
-                    paper["isDownloaded"] = False
-                    paper["authors"] = []
-                    for author in work["authorships"]:
-                        paper["authors"].append(author["author"]["display_name"])
-                    if not len(paper["authors"]):
-                        paper["authors"] = ["Author"]
-                    paper["year"] = work["publication_year"]
-                    if work["primary_location"]["source"]:
-                        paper["journal"] = work["primary_location"]["source"]["display_name"]
-                        paper["publisher"] = work["primary_location"]["source"]["host_organization_name"]
-                        paper["issn"] = work["primary_location"]["source"]["issn_l"]
-                    else:
-                        paper["journal"] = ""
-                        paper["publisher"] = ""
-                        paper["issn"] = ""
-                    biblio = work["biblio"]
-                    paper["volume"] = biblio["volume"] or ""
-                    paper["issue"] = biblio["issue"] or ""
-                    paper["pages"] = f'{biblio["first_page"]}-{biblio["last_page"]}' if biblio["first_page"] and int(biblio["first_page"]) < int(biblio["last_page"]) else ""
-                    if paper["journal"] != "":
-                        q, issn = await self.get_q_issn(
-                            paper["journal"].replace(" ", "_").replace(":", "_").lower(),
-                            paper["year"]
-                        )
-                        paper["q"] = q
-                        if paper["issn"] != "":
-                            paper["issn"] = issn
-                    else:
-                        paper["q"] = 'N/A'
-                    paper["citation"] = work["cited_by_count"] or 0
-                    paper["language"] = work["language"] or "Unknown"
-                    paper["type"] = work["type"] or "Unknown"
-                    if paper["type"] == "preprint":
-                        paper["status"] = "Preprint"
-                    else:
-                        paper["status"] = "Peer-reviewed"
-                    list_papers.append(paper)
-                    # logger.info(work["title"])
-                    list_papers_title.add(work["title"])
-        except requests.exceptions.Timeout:
-            logger.info(f"[{self}] Timeout for query {query}")
-        finally:
-            return list_papers_title, list_papers
+                        await self.redis_client.set(cache_key, json.dumps(res), ex=86400)
+                    except Exception as ce:
+                        logger.warning(f"[{self}] Redis cache write error: {ce}")
+            except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
+                logger.warning(f"[{self}] OpenAlex HTTP error for query '{search_query[:30]}': {e}")
+                res = {"results": []}
+            except Exception as e:
+                logger.error(f"[{self}] Unexpected error during OpenAlex search: {e}")
+                res = {"results": []}
+
+        for work in (res.get("results") or []):
+            if work.get("title") not in list_papers_title:
+                paper = {}
+                if not work.get("title") or work["title"] in ("Unknown", "None"):
+                    continue
+                paper["title"] = work["title"]
+                paper["source"] = "open_alex"
+                try:
+                    paper["abs"] = " ".join(list(work["abstract_inverted_index"].keys())) if len(list(work["abstract_inverted_index"].keys())) > 100 else ""
+                except Exception:
+                    paper["abs"] = ""
+                if cut_off_year_low:
+                    if int(work["publication_year"]) < cut_off_year_low:
+                        continue
+                if cut_off_year_high:
+                    if int(work["publication_year"]) > cut_off_year_high:
+                        continue
+                if work.get("open_access", {}).get("is_oa"):
+                    paper["open_access"] = True
+                    paper["url"] = work["open_access"].get("oa_url", "")
+                else:
+                    paper["open_access"] = False
+                    paper["url"] = work.get("primary_location", {}).get("landing_page_url", "")
+                paper["isDownloaded"] = False
+                paper["authors"] = []
+                for author in work.get("authorships", []):
+                    paper["authors"].append(author.get("author", {}).get("display_name", ""))
+                if not len(paper["authors"]):
+                    paper["authors"] = ["Author"]
+                paper["year"] = work.get("publication_year", "")
+                prim_loc = work.get("primary_location") or {}
+                if prim_loc.get("source"):
+                    paper["journal"] = prim_loc["source"].get("display_name", "")
+                    paper["publisher"] = prim_loc["source"].get("host_organization_name", "")
+                    paper["issn"] = prim_loc["source"].get("issn_l", "")
+                else:
+                    paper["journal"] = ""
+                    paper["publisher"] = ""
+                    paper["issn"] = ""
+                biblio = work.get("biblio") or {}
+                paper["volume"] = biblio.get("volume") or ""
+                paper["issue"] = biblio.get("issue") or ""
+                paper["pages"] = f'{biblio["first_page"]}-{biblio["last_page"]}' if biblio.get("first_page") and biblio.get("last_page") and int(biblio["first_page"]) < int(biblio["last_page"]) else ""
+                if paper["journal"] != "":
+                    q, issn = await self.get_q_issn(
+                        paper["journal"].replace(" ", "_").replace(":", "_").lower(),
+                        paper["year"]
+                    )
+                    paper["q"] = q
+                    if paper["issn"] != "":
+                        paper["issn"] = issn
+                else:
+                    paper["q"] = 'N/A'
+                paper["citation"] = work.get("cited_by_count") or 0
+                paper["language"] = work.get("language") or "Unknown"
+                paper["type"] = work.get("type") or "Unknown"
+                if paper["type"] == "preprint":
+                    paper["status"] = "Preprint"
+                else:
+                    paper["status"] = "Peer-reviewed"
+                list_papers.append(paper)
+                list_papers_title.add(work["title"])
+        return list_papers_title, list_papers
 
     async def search_papers(
         self, 
@@ -379,12 +403,22 @@ class SearchPapers(SearchJournal):
                         search_range,
                     )     
         # sorted_papers = sorted(list_papers, key=lambda x: x['open_access'], reverse=True)
-        tasks = [self.add_user_language_title(paper["title"]) for paper in list_papers]
-        usage_results = await asyncio.gather(*tasks)
-        for paper, (user_language_title, in_tokens, out_tokens) in zip(list_papers, usage_results):
-            paper["user_language_title"] = user_language_title
-            self.input_tokens += in_tokens
-            self.output_tokens += out_tokens
+        semaphore = asyncio.Semaphore(10)
+
+        async def _translate_with_semaphore(title: str):
+            async with semaphore:
+                return await self.add_user_language_title(title)
+
+        tasks = [_translate_with_semaphore(paper["title"]) for paper in list_papers]
+        usage_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for paper, res in zip(list_papers, usage_results):
+            if isinstance(res, tuple) and len(res) == 3:
+                user_language_title, in_tokens, out_tokens = res
+                paper["user_language_title"] = user_language_title
+                self.input_tokens += in_tokens
+                self.output_tokens += out_tokens
+            else:
+                paper["user_language_title"] = paper.get("title", "Unknown")
         logger.info(f"[{self}] Total papers: {len(list_papers)}/100")
         return list_papers
 

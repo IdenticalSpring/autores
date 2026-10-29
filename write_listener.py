@@ -812,10 +812,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                 } 
                 self.field_validate_list_str(input_str)
             except KeyError as e:
-                message["error_code"] = WriteSectionError.INVALID_PARAMS
+                message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
             except ValueError as e:
-                message["error_code"] = WriteSectionError.INVALID_PARAMS
+                message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = str(e)
                 logger.error(traceback.format_exc())
             if "error_code" not in message:
@@ -871,7 +871,7 @@ class WriteSectionEventListener(BaseAsyncListener):
                     logger.error(traceback.format_exc())
                 except NotImplementedError:
                     logger.error(f"[{_id}] Currently no support for model {model_id} for document_id: {document_id} - event {event_type}")
-                    message["error_code"] = WriteSectionError.NOT_IMPLEMENT_MODEL
+                    message["error_code"] = Error.NOT_IMPLEMENT_MODEL
                     message["error"] = f"Currently no support for model {model_id} for document_id: {document_id} - event {event_type}"
                 except Exception as e:
                     logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")

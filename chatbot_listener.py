@@ -36,10 +36,10 @@ class ChatbotEventListener(BaseAsyncListener):
             match topic:
                 case topics.CHATBOT_REQUEST:
                     response_topic = topics.CHATBOT_RESPONSE
-                    await asyncio.wait_for(self._handle_chatbot_event(topics.CHATBOT_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                    await asyncio.wait_for(self._handle_chatbot_event(topics.CHATBOT_RESPONSE, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
                 case topics.CHATBOT_REQUEST_LOCAL:
                     response_topic = topics.CHATBOT_RESPONSE_LOCAL
-                    await asyncio.wait_for(self._handle_chatbot_event(topics.CHATBOT_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 300))
+                    await asyncio.wait_for(self._handle_chatbot_event(topics.CHATBOT_RESPONSE_LOCAL, value_str), timeout=TIME_OUT_DICT.get(value["event_type"], 360))
         except asyncio.TimeoutError:
             producer = await get_producer()
             message = {
