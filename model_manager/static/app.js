@@ -220,9 +220,25 @@ window.runTest = async (modelId) => {
 
 const closeTestModal = () => { testModal.style.display = "none"; };
 btnCloseTestModal.addEventListener("click", closeTestModal);
-btnCloseTestBtn.addEventListener("click", closeTestModal);
-
 document.getElementById("btn-refresh").addEventListener("click", fetchModels);
+
+const btnSyncEnv = document.getElementById("btn-sync-env");
+if (btnSyncEnv) {
+  btnSyncEnv.addEventListener("click", async () => {
+    btnSyncEnv.disabled = true;
+    btnSyncEnv.innerText = "⏳ Đang đồng bộ...";
+    try {
+      const res = await apiCall("/api/system/sync-env", "POST");
+      showToast(res.message || "Đã đồng bộ key từ .env vào Redis!", "success");
+      await fetchModels();
+    } catch (err) {
+      showToast(err.message, "danger");
+    } finally {
+      btnSyncEnv.disabled = false;
+      btnSyncEnv.innerText = "📥 Đồng bộ từ .env";
+    }
+  });
+}
 
 // Init Dashboard
 function initDashboard() {

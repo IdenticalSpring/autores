@@ -1,0 +1,12 @@
+{
+  "event_type": "outer_chatbot",
+  "model_id": "deepseek-flash",
+  "conv_id": "smoke-conv-outer-chatbot",
+  "user_id": "smoke-user",
+  "question": "Phương pháp PLS-SEM phù hợp khi nào?",
+  "chat_history": [],
+  "language": "Vietnamese",
+  "short_answer": true,
+  "direct_answer": false,
+  "use_web_search_chatbot": false
+}

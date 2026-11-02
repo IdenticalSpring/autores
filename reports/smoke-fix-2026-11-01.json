@@ -1,0 +1,63 @@
+{
+  "generated_at": "2026-11-01T14:17:21.350722+00:00",
+  "model_id": "deepseek-flash",
+  "totals": {
+    "PASS": 4,
+    "FAIL": 1,
+    "SKIP": 0,
+    "TIMEOUT": 0
+  },
+  "echo_violations": [],
+  "results": [
+    {
+      "event": "delete_report",
+      "group": "write",
+      "status": "PASS",
+      "elapsed_s": 0.2,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "edit_report",
+      "group": "write",
+      "status": "PASS",
+      "elapsed_s": 3.7,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "gen_slides",
+      "group": "write",
+      "status": "PASS",
+      "elapsed_s": 0.2,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "generate_outline",
+      "group": "document_setup",
+      "status": "PASS",
+      "elapsed_s": 14.8,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "generate_outline_with_refs",
+      "group": "document_setup",
+      "status": "FAIL",
+      "elapsed_s": 20.7,
+      "error_code": 626,
+      "error": "'list' object has no attribute 'items'",
+      "echo_ok": true,
+      "missing_fields": []
+    }
+  ]
+}

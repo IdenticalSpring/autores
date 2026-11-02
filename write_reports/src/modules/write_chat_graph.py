@@ -19,6 +19,8 @@ from write_reports.src.modules.utils.utils_func import (
     are_sections_disjoint,
     validate_sublists,
     get_table,
+    section_heading,
+    strip_heading_number,
 )
 from write_reports.src.modules.write_prompt_bank import (
     batch_prompt,
@@ -243,9 +245,9 @@ async def write_section(state: State):
             subsections.append(subsection)
 
     current_section = SectionDescription(
-        heading=heading["heading"].split(" ", 1)[-1] if "." in heading["heading"].split(" ")[0] else heading["heading"],
-        overview=heading["overview"],
-        word_count=heading["word_count"],
+        heading=strip_heading_number(section_heading(heading)),
+        overview=heading.get("overview", ""),
+        word_count=heading.get("word_count", ""),
         subsections=subsections  # Will be empty list if no subheadings
     )
     return {
@@ -372,7 +374,8 @@ async def write_subsection(state: Worker):
 
 
 def continue_to_write_subsection(state: State):
-    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not len(state["current_section"].subsections):
+    has_sub = bool(getattr(state["current_section"], "subsections", None))
+    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not has_sub:
         if len(state["other_sections"]) - 1 != len(state["outline"]["outline"]):
             return "write_section"
         else:
@@ -389,7 +392,8 @@ async def section_synthesizer(state: State):
     logger.info(f"[{state['document_id'][:8]}] Synthesize section {state['current_section'].heading}")
     end_section = False
     if state["current_count_batch"] == 0:
-        if len(state["current_section"].subsections):
+        has_sub = bool(getattr(state["current_section"], "subsections", None))
+        if has_sub:
             num_subsection = len(state["current_section_batch"][state["current_count_batch"]])
         else:
             num_subsection = 1

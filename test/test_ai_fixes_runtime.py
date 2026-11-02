@@ -63,19 +63,28 @@ class FakeHttpClient:
 
 def run_send_health_check(fake_redis, status):
     FakeHttpClient.put_calls.clear()
+    original_redis_factory = utils.get_redis_client
+    original_async_client = utils.httpx.AsyncClient
     utils.get_redis_client = lambda: fake_redis
     utils.httpx.AsyncClient = FakeHttpClient
-    asyncio.run(
-        utils.send_health_check(
-            id="doc123",
-            status=status,
-            error=None,
-            error_message=None,
-            ttl=60,
-            event_type="analyzer",
-            topic="write_section_response",
+    try:
+        asyncio.run(
+            utils.send_health_check(
+                id="doc123",
+                status=status,
+                error=None,
+                error_message=None,
+                ttl=60,
+                event_type="analyzer",
+                topic="write_section_response",
+            )
         )
-    )
+    finally:
+        # BẮT BUỘC khôi phục: `httpx.AsyncClient` là global của module httpx.
+        # Nếu để lại FakeHttpClient, openai/langchain ở test chạy sau sẽ lỗi
+        # "Invalid http_client argument; Expected an instance of httpx.AsyncClient".
+        utils.httpx.AsyncClient = original_async_client
+        utils.get_redis_client = original_redis_factory
     return list(FakeHttpClient.put_calls)
 
 

@@ -64,6 +64,30 @@ async def test_model_connection(model_id: str) -> Dict[str, Any]:
                         "message": f"Lỗi OpenAI ({resp.status_code}): {resp.text[:120]}"
                     }
 
+            elif "deepseek" in model_id.lower():
+                base = (settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com/v1").rstrip("/")
+                headers = {"Authorization": f"Bearer {key}"}
+                payload = {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 5,
+                }
+                resp = await client.post(
+                    f"{base}/chat/completions", headers=headers, json=payload
+                )
+                latency = int((time.time() - start_time) * 1000)
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "latency_ms": latency,
+                        "message": "Kết nối thành công! DeepSeek phản hồi 200 OK."
+                    }
+                return {
+                    "success": False,
+                    "latency_ms": latency,
+                    "message": f"Lỗi DeepSeek ({resp.status_code}): {resp.text[:120]}"
+                }
+
             else:
                 base_url = settings.LOCALLLM_BASE_URL.rstrip("/")
                 url = f"{base_url}/models"

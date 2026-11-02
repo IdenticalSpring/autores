@@ -68,7 +68,7 @@ class EnhancementEventListener(BaseAsyncListener):
                     "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
                     "error": str(e),
                 }
-                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
                     if identifier in value:
                         message[identifier] = value[identifier]
                 response_topic = (
@@ -103,8 +103,15 @@ class EnhancementEventListener(BaseAsyncListener):
             }
             llm_key, db_key, _ = await self.get_key(value["model_id"])
         except KeyError as e:
-            message = {"error_code": Error.INVALID_PARAMS, "error": f"Missing field '{str(e)}'"}
-            await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, "")
+            # F10: giữ lại message đã có `model_id`/`event_type` (nếu đã tạo), chỉ thêm lỗi.
+            # Trước đây dựng dict mới ⇒ mất event_type + identifier ⇒ BE timeout oan.
+            message = dict(locals().get("message") or {})
+            message["error_code"] = Error.INVALID_PARAMS
+            message["error"] = f"Missing field '{str(e)}'"
+            self.attach_identifiers(message, value)
+            await self._finalize_task(
+                redis_timer, task_success, _id, producer, topic, message, value.get("event_type", "")
+            )
             return
 
         # if "user_id" in value and "document_id" in value:
@@ -437,9 +444,12 @@ class EnhancementEventListener(BaseAsyncListener):
             message["error_code"] = Error.EVENT_NOT_FOUND
             message["error"] = f"Wrong event_type - event {event_type}"
             # Echo identifier để BE ghép được request (nếu không sẽ chỉ thấy timeout)
-            for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+            for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
                 if value.get(identifier):
                     message[identifier] = value[identifier]
+        # Bắt buộc: echo event_type + identifier cho MỌI response (kể cả success).
+        # Trước đây nhánh success của ai_in_doc thiếu session_id ⇒ harness bỏ qua.
+        self.attach_identifiers(message, value)
         await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, event_type)
 
 

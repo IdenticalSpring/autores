@@ -1,0 +1,13 @@
+{
+  "event_type": "admin_documents",
+  "model_id": "deepseek-flash",
+  "user_id": "smoke-user",
+  "document_id": "smoke-admin-documents",
+  "documents": [
+    {
+      "url": "smoke/admin/sample-guideline.pdf",
+      "title": "Sample guideline (fixture)",
+      "source": "ADMIN"
+    }
+  ]
+}

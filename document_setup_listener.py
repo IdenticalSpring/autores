@@ -1,5 +1,6 @@
 from aiokafka.structs import ConsumerRecord
 import asyncio
+from datetime import datetime
 import json
 import logging
 import time
@@ -178,17 +179,18 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 
                 search_range = value.get("search_range", "")
                 country_filter = value["country_filter"]
-                oa_filter = value["oa_filter"]
+                oa_filter = value.get("oa_filter", False)
                 is_tool = value["is_tool"]
-                is_oa = value["is_oa"]
+                is_oa = value.get("is_oa", False)
                 query = value.get("query", "")
                 domain = value["domain"]
                 subdomains = value.get("subdomains", [])
                 field = value["field"]
                 proposal = value.get("proposal", {})
-                downloaded_papers = value["downloaded_papers"]
-                cut_off_year_low = value["cut_off_year_low"]
-                cut_off_year_high = value["cut_off_year_high"]
+                downloaded_papers = value.get("downloaded_papers", [])
+                # Optional year filters: default to a sensible window
+                cut_off_year_low = value.get("cut_off_year_low") or 2018
+                cut_off_year_high = value.get("cut_off_year_high") or datetime.now().year
                 use_web_search = value.get("use_web_search", False)
                 
                 # Type validation
@@ -975,9 +977,9 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 domain = value["domain"]
                 research_type = value["research_type"]
                 headings = value["headings"]
-                headings_percent = value["headings_percent"]
+                headings_percent = self.normalize_percent_list(value["headings_percent"])
                 new_headings = value["new_headings"]
-                new_headings_percent = value["new_headings_percent"]
+                new_headings_percent = self.normalize_percent_list(value["new_headings_percent"], "new_headings_percent")
                 final_proposal = value["final_proposal"]
 
                 # Type validation
@@ -1079,11 +1081,19 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 field = value["field"]
                 domain = value["domain"]
                 research_type = value["research_type"]
-                word_count_str = value["word_count_str"]
+                word_count_str = str(value["word_count_str"])
                 headings = value["headings"]
-                headings_percent = value["headings_percent"]
+                headings_percent = self.normalize_percent_list(value["headings_percent"])
                 final_proposal = value["final_proposal"]
-                outline_code = value.get("outline_code", ["" for _ in range(len(headings))])
+                raw_outline_code = value.get("outline_code")
+                if isinstance(raw_outline_code, list):
+                    outline_code = list(raw_outline_code)
+                    if len(outline_code) < len(headings):
+                        outline_code.extend(["" for _ in range(len(headings) - len(outline_code))])
+                    elif len(outline_code) > len(headings):
+                        outline_code = outline_code[:len(headings)]
+                else:
+                    outline_code = ["" for _ in range(len(headings))]
                 
                 # Type validation
                 self.field_validate_list_number({"headings_percent": headings_percent})
@@ -1117,8 +1127,6 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 # Extra condition
                 if len(headings) != len(headings_percent):
                     raise ValueError("heading and headings_percent need to have the same length")
-                if len(outline_code) - len(headings) > 2:
-                    raise ValueError("heading and outline_code need to have the same length")
         
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
@@ -1186,7 +1194,16 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 })
                 language = value["language"]
                 headings = value["outline"]
-                outline_code = value.get("outline_code", ["" for _ in range(len(headings["outline"]))])
+                num_outline = len(headings.get("outline", [])) if isinstance(headings, dict) and "outline" in headings else 0
+                raw_outline_code = value.get("outline_code")
+                if isinstance(raw_outline_code, list):
+                    outline_code = list(raw_outline_code)
+                    if len(outline_code) < num_outline:
+                        outline_code.extend(["" for _ in range(num_outline - len(outline_code))])
+                    elif len(outline_code) > num_outline:
+                        outline_code = outline_code[:num_outline]
+                else:
+                    outline_code = ["" for _ in range(num_outline)]
                 final_proposal = value["final_proposal"]
                 processed_docs = value["processed_docs"]
                 
@@ -1213,8 +1230,6 @@ class DocumentSetupEventListener(BaseAsyncListener):
                 }
                 
                 self.empty_value_check(inp)
-                if len(outline_code) - len(headings["outline"]) > 2:
-                    raise ValueError("heading and outline_code need to have the same length")
         
             except KeyError as e:
                 message["error_code"] = Error.INVALID_PARAMS
@@ -1778,6 +1793,8 @@ class DocumentSetupEventListener(BaseAsyncListener):
             logger.info(f"[{_id}] Wrong event_type - event {event_type}")
             message["error_code"] = Error.EVENT_NOT_FOUND
             message["error"] = f"Wrong event_type - event {event_type}"
+        # Bắt buộc: echo event_type + identifier cho MỌI response (tránh BE thấy "timeout")
+        self.attach_identifiers(message, value)
         await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, event_type)
 
 

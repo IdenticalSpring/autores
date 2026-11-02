@@ -75,7 +75,7 @@ class ChatbotEventListener(BaseAsyncListener):
                     "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
                     "error": str(e),
                 }
-                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
                     if identifier in value:
                         message[identifier] = value[identifier]
                 response_topic = (
@@ -770,7 +770,7 @@ class ChatbotEventListener(BaseAsyncListener):
             message["error_code"] = Error.EVENT_NOT_FOUND
             message["error"] = f"Wrong event_type - event {event_type}"
             # Echo identifier để BE ghép được request (nếu không sẽ chỉ thấy timeout)
-            for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+            for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
                 if value.get(identifier):
                     message[identifier] = value[identifier]
             # await send_health_check(id=_id, status=AIStatus.ERROR, error=message["error_code"], error_message=message["error"])

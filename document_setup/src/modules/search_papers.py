@@ -23,6 +23,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+def format_pages(biblio: dict | None) -> str:
+    """Format biblio first_page and last_page safely, supporting numeric pages and electronic IDs (e.g. e13908)."""
+    if not biblio or not isinstance(biblio, dict):
+        return ""
+    p1 = str(biblio.get("first_page") or "").strip()
+    p2 = str(biblio.get("last_page") or "").strip()
+    if p1 and p2:
+        if p1.isdigit() and p2.isdigit():
+            return f"{p1}-{p2}" if int(p1) <= int(p2) else f"{p2}-{p1}"
+        return f"{p1}-{p2}"
+    return p1 or p2 or ""
+
+
 class OpenAlexAuth(AuthBase):
 
     def __init__(self, config: dict):
@@ -242,12 +255,16 @@ class SearchPapers(SearchJournal):
                     paper["abs"] = " ".join(list(work["abstract_inverted_index"].keys())) if len(list(work["abstract_inverted_index"].keys())) > 100 else ""
                 except Exception:
                     paper["abs"] = ""
-                if cut_off_year_low:
-                    if int(work["publication_year"]) < cut_off_year_low:
-                        continue
-                if cut_off_year_high:
-                    if int(work["publication_year"]) > cut_off_year_high:
-                        continue
+                pub_year = work.get("publication_year")
+                if pub_year is not None:
+                    try:
+                        pub_year_int = int(pub_year)
+                        if cut_off_year_low and pub_year_int < cut_off_year_low:
+                            continue
+                        if cut_off_year_high and pub_year_int > cut_off_year_high:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
                 if work.get("open_access", {}).get("is_oa"):
                     paper["open_access"] = True
                     paper["url"] = work["open_access"].get("oa_url", "")
@@ -273,7 +290,7 @@ class SearchPapers(SearchJournal):
                 biblio = work.get("biblio") or {}
                 paper["volume"] = biblio.get("volume") or ""
                 paper["issue"] = biblio.get("issue") or ""
-                paper["pages"] = f'{biblio["first_page"]}-{biblio["last_page"]}' if biblio.get("first_page") and biblio.get("last_page") and int(biblio["first_page"]) < int(biblio["last_page"]) else ""
+                paper["pages"] = format_pages(biblio)
                 if paper["journal"] != "":
                     q, issn = await self.get_q_issn(
                         paper["journal"].replace(" ", "_").replace(":", "_").lower(),
@@ -365,7 +382,7 @@ class SearchPapers(SearchJournal):
             logger.info(f"[{self}] Not enough papers: {len(list_papers)}/100")       
             queries = await self.refine_query_v2(field, domain, subdomains, proposal, query)
             logger.info(f"[{self}] {queries.search_queries}")
-            for search_query in queries.search_queries:
+            for search_query in (getattr(queries, "search_queries", None) or []):
                 list_papers_title, list_papers = await self._search_papers(
                     search_query,
                     list_papers_title,

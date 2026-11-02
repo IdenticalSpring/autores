@@ -1,0 +1,11 @@
+{
+  "event_type": "generate_domains",
+  "model_id": "deepseek-flash",
+  "user_id": "smoke-user",
+  "document_id": "smoke-generate-domains",
+  "session_id": "smoke-session-generate-domains",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domains_num": 5,
+  "is_tool": false
+}

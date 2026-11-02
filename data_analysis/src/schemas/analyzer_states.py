@@ -369,12 +369,16 @@ class Plan(BaseModel):
     accepted: bool = False
 
 class SimplifiedPlanStep(BaseModel):
+    # `parameters` do LLM sinh tự do ⇒ dùng dict mở. Union chặt + additionalProperties
+    # False trước đây khiến 1 giá trị lạ (bool/list[int]/list[dict]) làm hỏng cả plan.
+    model_config = ConfigDict(extra="allow")
     tool: str = Field(description="Name of the tool to execute (e.g., 'run_reliability_analysis').")
-    parameters: Optional[dict[str, Union[int, float, str, list[str], list[list[str]], dict[str, str], dict[str, int], dict[str, dict[str, int]]]]] = Field(
+    parameters: Optional[dict] = Field(
         default=None,
-        # description="Parameters specific to the tool, if any. Values can be integers, floats, strings, lists of strings, lists of lists of strings, dictionaries with string keys and values, or nested dictionaries with integer values.",
-        description="Parameters specific to the tool, if any. Values can be integers, strings, lists of strings, or dictionaries with string keys and values.",
-        json_schema_extra={"additionalProperties": False}
+        description=(
+            "Parameters specific to the tool, if any. Values can be integers, floats, strings, "
+            "lists or nested dictionaries — không ràng buộc kiểu ở tầng schema."
+        ),
     )
 
 class SimplifiedPlan(BaseModel):

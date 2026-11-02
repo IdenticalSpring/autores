@@ -111,6 +111,47 @@ def test_ai_bug_01_02_consumer_groups_separated():
     assert "\"chatbot_09_06_2025\": [topics.CHATBOT_REQUEST]" in health_alert_src
 
 
+def test_ai_bug_05_outline_word_count_and_code_padding():
+    """Verify outline_generation.py handles single-number word_count_str, outline_code padding, and empty priorities."""
+    outline_gen_path = ROOT / "document_setup" / "src" / "modules" / "outline_generation.py"
+    source = outline_gen_path.read_text(encoding="utf-8")
+
+    # 1. Structural checks
+    assert "def parse_word_count_range(" in source
+    assert "int(word_count[0] * heading_percent)" not in source
+    assert "low_count, high_count = parse_word_count_range(word_count_str)" in source
+    assert "code_val = outline_code[heading] if heading < len(outline_code) else \"\"" in source
+    assert "if not priorities:" in source
+
+    # 2. Extract parse_word_count_range and test behavior dynamically
+    tree = ast.parse(source)
+    fn_code = ""
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "parse_word_count_range":
+            fn_code = ast.get_source_segment(source, node)
+            break
+    assert fn_code, "parse_word_count_range function definition not found"
+    local_ns = {}
+    exec(fn_code, local_ns)
+    parse_fn = local_ns["parse_word_count_range"]
+
+    assert parse_fn("5000-8000") == (5000, 8000)
+    assert parse_fn(" 5000 - 8000 ") == (5000, 8000)
+    assert parse_fn("10000") == (8000, 10000)
+    assert parse_fn(5000) == (4000, 5000)
+    assert parse_fn("") == (3000, 5000)
+    assert parse_fn(None) == (3000, 5000)
+
+
+def test_ai_bug_05_listener_padding():
+    """Verify document_setup_listener.py normalizes word_count_str and outline_code without crashing."""
+    listener_path = ROOT / "document_setup_listener.py"
+    source = listener_path.read_text(encoding="utf-8")
+    assert "len(outline_code) - len(headings) > 2" not in source
+    assert "len(outline_code) < len(headings)" in source
+    assert "word_count_str = str(value[\"word_count_str\"])" in source
+
+
 def main():
     tests = [
         test_ai_bug_03_write_section_error_enums,
@@ -118,6 +159,8 @@ def main():
         test_ai_bug_04_search_papers_exception_and_caching,
         test_timeouts_upgraded,
         test_ai_bug_01_02_consumer_groups_separated,
+        test_ai_bug_05_outline_word_count_and_code_padding,
+        test_ai_bug_05_listener_padding,
     ]
     passed = 0
     for test in tests:

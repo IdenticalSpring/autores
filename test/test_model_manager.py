@@ -37,6 +37,8 @@ class TestModelManager(unittest.TestCase):
         """Verify provider detection logic for various model names."""
         self.assertEqual(detect_provider("gemini-3.8-flash"), "Google Gemini")
         self.assertEqual(detect_provider("gemini-3.5-flash-lite"), "Google Gemini")
+        self.assertEqual(detect_provider("deepseek-chat"), "DeepSeek")
+        self.assertEqual(detect_provider("deepseek-reasoner"), "DeepSeek")
         self.assertEqual(detect_provider("gpt-4o-mini"), "OpenAI")
         self.assertEqual(detect_provider("gpt-5-preview"), "OpenAI")
         self.assertEqual(detect_provider("groq/mixtral"), "Groq")

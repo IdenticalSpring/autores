@@ -2,9 +2,10 @@
   "user_id": "650000000000000000000001",
   "document_id": "650000000000000000000001",
   "session_id": "smoke-session-user-guide",
-  "data_id": "user-guide-test-1",
-  "model_id": "gemini-3.5-flash-lite",
+  "data_id": "e2e-data-001",
+  "model_id": "deepseek-flash",
   "documents_urls": [
     "autoresearching/sample/sample.pdf"
-  ]
+  ],
+  "event_type": "user_guide_documents"
 }

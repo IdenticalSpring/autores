@@ -81,6 +81,81 @@ logger = logging.getLogger(__name__)
 DOCUMENT_EMBED_KEY = "document_embed:{file_id}"
 
 
+def section_heading(section: dict) -> str:
+    """Lấy heading của section, chấp nhận cả `title`/`section_name` (contract BE).
+
+    BE có thể gửi `heading` (contract mới) hoặc `title` (contract cũ, AI-BUG-08).
+    Trước đây các graph đọc thẳng `section["heading"]` ⇒ KeyError khi chỉ có `title`
+    (F1/F8, incident 2026-11-01).
+    """
+    if not isinstance(section, dict):
+        return ""
+    return str(
+        section.get("heading") or section.get("title") or section.get("section_name") or ""
+    ).strip()
+
+
+def strip_heading_number(text: str) -> str:
+    """Bỏ số thứ tự dạng `1. Giới thiệu` / `2.1. Phân tích` → `Giới thiệu`."""
+    text = text or ""
+    first_token = text.split(" ")[0]
+    return text.split(" ", 1)[-1] if "." in first_token else text
+
+
+def normalize_outline(outline: dict) -> dict:
+    """Chuẩn hoá outline nhận từ BE **một lần ở biên** (listener) trước khi vào graph.
+
+    - `heading` ← `heading` | `title` | `section_name` | `chapter_<i>`.
+    - Subheading: `subheading` ← `subheading` | `title` | `heading`.
+    - Bù `overview` / `word_count` / `subheading_word_count` / `detail_description`.
+    - Giữ nguyên `subheadings=None` (nghĩa là viết ở cấp heading, KHÔNG có tiểu mục);
+      chỉ chuẩn hoá khi BE gửi list.
+    Không ghi ngược ra DB — chỉ sửa bản trong RAM của AI.
+    """
+    if not isinstance(outline, dict):
+        return outline
+    sections = outline.get("outline")
+    if not isinstance(sections, list):
+        return outline
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        heading = section_heading(section) or f"chapter_{index + 1}"
+        section["heading"] = heading
+        section.setdefault("overview", "")
+        section.setdefault("word_count", "")
+        subheadings = section.get("subheadings")
+        if subheadings is None:
+            continue
+        if not isinstance(subheadings, list):
+            section["subheadings"] = []
+            continue
+        normalized = []
+        for sub_index, sub in enumerate(subheadings):
+            if isinstance(sub, dict):
+                sub["subheading"] = (
+                    str(
+                        sub.get("subheading")
+                        or sub.get("title")
+                        or sub.get("heading")
+                        or f"{heading}.{sub_index + 1}"
+                    ).strip()
+                )
+                sub.setdefault("subheading_word_count", "")
+                sub.setdefault("detail_description", "")
+                normalized.append(sub)
+            elif isinstance(sub, str):
+                normalized.append(
+                    {
+                        "subheading": sub,
+                        "subheading_word_count": "",
+                        "detail_description": "",
+                    }
+                )
+        section["subheadings"] = normalized
+    return outline
+
+
 def remove_markdown_subsections(content: str, delete_subsections: bool = False) -> str:
     """
     Post-process generated content to remove markdown subsections (##, ###, ####, etc.)
@@ -375,7 +450,7 @@ async def _section_synthesizer(state: dict, section_count: int, num_subsection: 
     current_section = state["current_section"]
     section_dict: dict = {}
     section_dict["name"] = current_section.heading.lower()
-    if len(current_section.subsections):
+    if getattr(current_section, "subsections", None) and len(current_section.subsections):
         content = ""
         for subsection_count, subsection_object in enumerate(state["completed_subsections"][-num_subsection:]):
             subsection = subsection_object.content
@@ -536,6 +611,18 @@ async def load_current_section(state: dict):
     collection_chunk = admin_db["reports_refs_chunks"]
     collection_docs = admin_db["processed_docs"]
     heading = state["outline"]["outline"][len(state["other_sections"]) - 1]
+    if not heading.get("heading"):
+        # Fallback chain: title -> section_name -> outline_code -> generic name
+        codes = state.get("outline_code") or []
+        idx = len(state["other_sections"]) - 1
+        heading["heading"] = (
+            heading.get("title")
+            or heading.get("section_name")
+            or (codes[idx] if idx < len(codes) and codes[idx] else None)
+            or f"chapter_{idx + 1}"
+        )
+    heading.setdefault("overview", "")
+    heading.setdefault("word_count", "")
 
     # Check if this section has subheadings
     has_subheadings = heading.get('subheadings') is not None and len(heading.get('subheadings', [])) > 0
@@ -607,7 +694,7 @@ async def load_current_section(state: dict):
             subsections.append(subsection)
 
         current_section = SectionDescription(
-            heading=heading["heading"].split(" ", 1)[-1] if "." in heading["heading"].split(" ")[0] else heading["heading"],
+            heading=strip_heading_number(section_heading(heading)),
             overview=heading["overview"],
             word_count=heading["word_count"],
             subsections=subsections,
@@ -616,7 +703,7 @@ async def load_current_section(state: dict):
     else:
         # Heading-only section
         current_section = SectionDescription(
-            heading=heading["heading"].split(" ", 1)[-1] if "." in heading["heading"].split(" ")[0] else heading["heading"],
+            heading=strip_heading_number(section_heading(heading)),
             overview=heading["overview"],
             word_count=heading["word_count"],
             subsections=None,

@@ -14,6 +14,12 @@ class AppSettings(BaseSettings):
     OPEN_AI_KEY: str = ""
 
     GEMINI_KEY: str = ""
+    # DeepSeek: provider chính thay Gemini free tier
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    AI_DEFAULT_MODEL: str = "deepseek-flash"
+    # disabled = tắt thinking mode (mặc định). enabled = bật cho tác vụ suy luận nặng.
+    DEEPSEEK_THINKING: str = "disabled"
     SERP_KEY: str = ""
     
     CURRENT_YEAR: int = x.year
@@ -41,6 +47,9 @@ class AppSettings(BaseSettings):
     MONGO_CONNECTION_STRING: str = ""
     LOCALLLM_BASE_URL: str = ""
     API_KEY_ID: str = ""
+    # Webhook health-check của BE (mặc định: REDIS_HOST:4002)
+    HEALTH_CHECK_HOST: str = ""
+    HEALTH_CHECK_PORT: int = 4002
 
 
 settings = AppSettings()

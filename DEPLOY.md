@@ -11,7 +11,7 @@
 | File | Vai trò |
 |---|---|
 | [`Dockerfile`](Dockerfile) | Build image `autoresearching-ai-dev:latest` (Python 3.12 + r-base + BLAS/LAPACK) |
-| [`docker-compose.yaml`](docker-compose.yaml) | **Chạy chuẩn**: 1 service `autoresearching-ai-dev`, `python main.py` |
+| [`docker-compose.yaml`](docker-compose.yaml) | **Chạy chuẩn**: AI container `autoresearching-ai-dev` + Model Manager UI `autoresearching-model-manager` (Port 8088) |
 | `docker-compose-doc.yaml`, `-write.yaml`, `-chat.yaml`, `-enhance.yaml` | Deploy tách riêng từng service (dùng bởi `Jenkinsfile-*`) |
 | [`docker-compose-infra.yaml`](docker-compose-infra.yaml) | **Chỉ dùng cho local** — Kafka, Redis Stack, MongoDB, Qdrant, MinIO, Kafka UI, LiteLLM |
 | [`Jenkinsfile`](Jenkinsfile) | CI/CD: build tag `autoresearching-ai-dev` → `docker-compose up -d` |
@@ -93,15 +93,15 @@ docker exec autoresearching-ai-dev python scripts/smoke_admin_documents.py --tim
 | Qdrant | 6333 / 6334 | Vector DB (RAG) |
 | MinIO API / Console | 9000 / 9001 | Object storage |
 | LiteLLM Proxy | 8000 | Chỉ cần khi dùng model `groq`/`oss`/`local` |
-| Model Manager (tùy chọn) | 8088 | Web quản lý model/API key — không thuộc compose chuẩn |
+| Model Manager UI | 8088 | Web UI quản lý model AI & API Keys trực quan (http://localhost:8088, mật khẩu mặc định `admin123`) |
 
-Chạy Model Manager khi cần (dùng chính image chuẩn):
+Model Manager được tích hợp sẵn trong `docker-compose.yaml` với giới hạn tài nguyên 256MB RAM:
 
 ```bash
-docker run -d --name autoresearching-model-manager --network host \
-  --env-file .env -v "$PWD/.env:/app/.env:ro" \
-  autoresearching-ai-dev:latest \
-  uvicorn model_manager.main:app --host 0.0.0.0 --port 8088
+# Khởi động app cùng Model Manager UI:
+./deploy.sh up
+# hoặc:
+docker compose -f docker-compose.yaml up -d
 ```
 
 ---

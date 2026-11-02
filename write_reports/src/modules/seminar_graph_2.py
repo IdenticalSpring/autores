@@ -122,7 +122,7 @@ async def choose_refs(state: State):
     }
     llm = get_llm(state["model_id"], state["llm_key"])
     headings = [
-        section["heading"].split(" ", 1)[-1] if "." in section["heading"].split(" ")[0] else section["heading"] 
+        (section.get("heading") or section.get("name") or section.get("title") or "").split(" ", 1)[-1] if "." in (section.get("heading") or section.get("name") or section.get("title") or "").split(" ")[0] else (section.get("heading") or section.get("name") or section.get("title") or "") 
         for section in state["outline"]["outline"]
     ]
     propose_method = ["phương pháp nghiên cứu", "thiết kế nghiên cứu", "research design", "research methodology", "proposed method"]
@@ -182,9 +182,10 @@ async def write_section(state: State):
 
 
 async def create_subsection_batch(state: State):
-    logger.info(f"[{state['document_id'][:8]}] Creating batches for section: '{state["current_section"].heading}'")
-    content = f"Here is the section data:\n{state["current_section"]}\nGenerate from 0 to {len(state["current_section"].subsections) - 1}"
-    if len(state["current_section"].subsections):
+    logger.info(f"[{state['document_id'][:8]}] Creating batches for section: '{state['current_section'].heading}'")
+    subsections = getattr(state["current_section"], "subsections", None) or []
+    if len(subsections):
+        content = f"Here is the section data:\n{state['current_section']}\nGenerate from 0 to {len(subsections) - 1}"
         llm = get_llm(state["model_id"], state["llm_key"])
         success = False
         retry = 0
@@ -205,18 +206,18 @@ async def create_subsection_batch(state: State):
                 state["output_tokens"] += output_tokens
                 current_section_batch.plan = [sorted(set(batch)) for batch in current_section_batch.plan]
                 batch_len = sum([len(batch) for batch in current_section_batch.plan])
-                success = batch_len == len(state["current_section"].subsections)
+                success = batch_len == len(subsections)
             except Exception as e:
                 logger.error(f"[{state['document_id'][:8]}] {e}")
         if not success or not are_sections_disjoint(current_section_batch.plan) or not validate_sublists(current_section_batch.plan):                    
-            current_section_batch = ExecutionPlan(plan=[[i] for i in range(len(state["current_section"].subsections))])
+            current_section_batch = ExecutionPlan(plan=[[i] for i in range(len(subsections))])
         if current_section_batch.plan[0][0] != 0 and success:
             current_section_batch.plan = [[[item - current_section_batch.plan[0][0]] for item in batch] for batch in current_section_batch.plan]
         final_batch: list[list[SubSectionDescription]] = []
         for batch in current_section_batch.plan:
             subsection_batch: list[SubSectionDescription] = []
             for item in batch:
-                subsection_batch.append(state["current_section"].subsections[item])
+                subsection_batch.append(subsections[item])
             if subsection_batch:
                 final_batch.append(subsection_batch)
         return {
@@ -234,13 +235,12 @@ async def create_subsection_batch(state: State):
 
 
 def assign_workers_subsection(state: State):
+    # Tính MỘT lần TRƯỚC if/else: nhánh không có subsection vẫn cần current_report.
+    # Trước đây biến chỉ gán trong nhánh if → UnboundLocalError (lỗi 633 chuyen_de_2).
+    current_report = markdownify_keep_images(
+        "\n\n".join([f"{other_section["content"]}" for other_section in state["other_sections"]])
+    )
     if len(state["current_section_batch"]):
-        current_report = "\n\n".join(
-            [
-                f"{other_section["content"]}" for other_section in state["other_sections"]
-            ]
-        )
-
         return [
             Send(
                 "write_subsection",
@@ -252,7 +252,7 @@ def assign_workers_subsection(state: State):
                     "language": state["language"],
                     "field": state["field"],
                     "domain": state["domain"],
-                    "current_report": markdownify_keep_images(current_report),
+                    "current_report": current_report,
                     "retry": state["retry"],
                     "section_num": len(state["other_sections"]) - 1 if not state["current_count_batch"] else len(state["other_sections"]) - 2,
                     "model_id": state["model_id"],
@@ -274,7 +274,7 @@ def assign_workers_subsection(state: State):
                 "language": state["language"],
                 "field": state["field"],
                 "domain": state["domain"],
-                "current_report": markdownify_keep_images(current_report),
+                "current_report": current_report,
                 "subsection": SubSectionDescription(detail_description="", subheading="", subheading_word_count="0-0"),
                 "retry": state["retry"],
                 "model_id": state["model_id"],
@@ -302,7 +302,8 @@ async def write_subsection(state: Worker):
 
 
 def continue_to_write_subsection(state: State):
-    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not len(state["current_section"].subsections):
+    has_sub = bool(getattr(state["current_section"], "subsections", None))
+    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not has_sub:
         if len(state["other_sections"]) - 1 != len(state["outline"]["outline"]):
             return "write_section"
         else:
@@ -319,7 +320,8 @@ async def section_synthesizer(state: State):
     logger.info(f"[{state['document_id'][:8]}] Synthesize section {state['current_section'].heading}")
     end_section = False
     if state["current_count_batch"] == 0:
-        if len(state["current_section"].subsections):
+        has_sub = bool(getattr(state["current_section"], "subsections", None))
+        if has_sub:
             num_subsection = len(state["current_section_batch"][state["current_count_batch"]])
         else:
             num_subsection = 1

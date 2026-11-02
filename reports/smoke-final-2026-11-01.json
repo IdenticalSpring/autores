@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-11-01T14:28:52.170320+00:00",
+  "model_id": "deepseek-flash",
+  "totals": {
+    "PASS": 3,
+    "FAIL": 0,
+    "SKIP": 0,
+    "TIMEOUT": 0
+  },
+  "echo_violations": [],
+  "results": [
+    {
+      "event": "ai_in_doc",
+      "group": "enhancement",
+      "status": "PASS",
+      "elapsed_s": 8.3,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "generate_domains",
+      "group": "document_setup",
+      "status": "PASS",
+      "elapsed_s": 1.2,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    },
+    {
+      "event": "generate_outline",
+      "group": "document_setup",
+      "status": "PASS",
+      "elapsed_s": 21.5,
+      "error_code": null,
+      "error": null,
+      "echo_ok": true,
+      "missing_fields": []
+    }
+  ]
+}

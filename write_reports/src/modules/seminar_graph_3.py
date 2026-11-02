@@ -173,7 +173,8 @@ async def write_section(state: State):
         state["use_web_search"] = result["use_web_search"]
         state["search_key"] = result["search_key"]
     state, current_section, _ = await load_current_section(state)
-    if len(current_section.subsections):
+    subsections = getattr(current_section, "subsections", None) or []
+    if len(subsections):
         if len(state["other_sections"]) > 2:
             content = f"""
             Report detail section:
@@ -193,13 +194,13 @@ async def write_section(state: State):
                     analyze_subsection_selection, 
                     content, 
                     str(dict(subsection))
-                ) for subsection in current_section.subsections
+                ) for subsection in subsections
             ]
             results = await asyncio.gather(*tasks)
             sections_with_data = [result[0] for result in results]
             input_tokens = [result[1] for result in results]
             output_tokens = [result[2] for result in results]
-            logger.info(f"[{state['document_id'][:8]}] {len(current_section.subsections)}")
+            logger.info(f"[{state['document_id'][:8]}] {len(subsections)}")
             logger.info(f"[{state['document_id'][:8]}] {sections_with_data}")
             state["input_tokens"] += sum(input_tokens)
             state["output_tokens"] += sum(output_tokens)
@@ -235,9 +236,10 @@ async def write_section(state: State):
 
 async def create_subsection_batch(state: State):
     logger.info(f"[{state['document_id'][:8]}] Creating batches for section: '{state['current_section'].heading}'")
-    if len(state["current_section"].subsections):
-        if not state["need_data"] or (state["need_data"] and sum(state["sections_need_data"]) == len(state["current_section"].subsections)):
-            content = f"Here is the section data:\n{state['current_section']}\nGenerate from 0 to {len(state['current_section'].subsections) - 1}"
+    subsections = getattr(state["current_section"], "subsections", None) or []
+    if len(subsections):
+        if not state["need_data"] or (state["need_data"] and sum(state["sections_need_data"]) == len(subsections)):
+            content = f"Here is the section data:\n{state['current_section']}\nGenerate from 0 to {len(subsections) - 1}"
             llm = get_llm(state["model_id"], state["llm_key"])
             success = False
             retry = 0
@@ -258,18 +260,18 @@ async def create_subsection_batch(state: State):
                     state["output_tokens"] += output_tokens
                     current_section_batch.plan = [sorted(set(batch)) for batch in current_section_batch.plan]
                     batch_len = sum([len(batch) for batch in current_section_batch.plan])
-                    success = batch_len == len(state["current_section"].subsections)
+                    success = batch_len == len(subsections)
                 except Exception as e:
                     logger.error(f"[{state['document_id'][:8]}] {e}")
             if not success or not are_sections_disjoint(current_section_batch.plan) or not validate_sublists(current_section_batch.plan):                    
-                current_section_batch = ExecutionPlan(plan=[[i] for i in range(len(state["current_section"].subsections))])
+                current_section_batch = ExecutionPlan(plan=[[i] for i in range(len(subsections))])
             if current_section_batch.plan[0][0] != 0 and success:
                 current_section_batch.plan = [[[item - current_section_batch.plan[0][0]] for item in batch] for batch in current_section_batch.plan]
             final_batch: list[list[SubSectionDescription]] = []
             for batch in current_section_batch.plan:
                 subsection_batch: list[SubSectionDescription] = []
                 for item in batch:
-                    subsection_batch.append(state["current_section"].subsections[item])
+                    subsection_batch.append(subsections[item])
                 if subsection_batch:
                     final_batch.append(subsection_batch)
             return {
@@ -281,12 +283,12 @@ async def create_subsection_batch(state: State):
         elif state["need_data"]:
             try:
                 split_point = state["sections_need_data"].index(True)
-                final_batch = [state["current_section"].subsections[:split_point]] + [
-                    [item] for item in state["current_section"].subsections[split_point:]
-                ] if split_point else [[item] for item in state["current_section"].subsections]
+                final_batch = [subsections[:split_point]] + [
+                    [item] for item in subsections[split_point:]
+                ] if split_point else [[item] for item in subsections]
             except Exception:
                 final_batch: list[list[SubSectionDescription]] = []
-                for batch in state["current_section"].subsections:
+                for batch in subsections:
                     if batch:
                         final_batch.append([batch])
             return {
@@ -312,7 +314,8 @@ async def check_for_data(state: State):
         state["current_section"] = current_section
         updates["current_section"] = current_section
 
-    if len(state["current_section"].subsections):
+    subsections = getattr(state["current_section"], "subsections", None) or []
+    if len(subsections):
         current_batch_subsections = state["current_section_batch"][state["current_count_batch"]]
         current_subsections_count = sum([len(state["current_section_batch"][batch]) for batch in range(state["current_count_batch"])])
         need_data = any(
@@ -357,16 +360,17 @@ async def check_for_data(state: State):
 
 
 def assign_workers_subsection(state: State):
-    if len(state["current_section"].subsections):
+    current_report = "\n\n".join(
+        [
+            f"{other_section['content']}" for other_section in state["other_sections"]
+        ]
+    )
+    subsections = getattr(state["current_section"], "subsections", None) or []
+    if len(subsections):
         current_batch_subsections = state["current_section_batch"][state["current_count_batch"]]
         current_subsections_count = sum([len(state["current_section_batch"][batch]) for batch in range(state["current_count_batch"])])
         need_data = any(
             state["sections_need_data"][current_subsections_count:current_subsections_count + len(current_batch_subsections)]
-        )
-        current_report = "\n\n".join(
-            [
-                f"{other_section['content']}" for other_section in state["other_sections"]
-            ]
         )
 
         workers = []
@@ -428,7 +432,7 @@ def assign_workers_subsection(state: State):
                 "tab_count": state["tab_count"],
                 "fig_count": state["fig_count"],
                 "retry": state["retry"],
-                "subsection": SubSectionDescription(detail_description="", subheading="", subheading_word_count="0-0"),
+                "subsection": SubSectionDescription(detail_description="", subheading="", subheading_word_count="0-0", refs=[]),
                 "llm_key": state["llm_key"],
                 "search_phase": 3 if state["use_web_search"] else 0,
                 "search_key": state["search_key"],
@@ -476,7 +480,8 @@ async def write_subsection(state: Worker):
 
 
 def continue_to_write_subsection(state: State):
-    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not len(state["current_section"].subsections):
+    has_sub = bool(getattr(state["current_section"], "subsections", None))
+    if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not has_sub:
         if len(state["other_sections"]) - 1 != len(state["outline"]["outline"]):
             return "write_section"
         else:
@@ -492,8 +497,9 @@ async def increment_count_batch(state: State):
 async def section_synthesizer(state: State):
     logger.info(f"[{state['document_id'][:8]}] Synthesize section {state['current_section'].heading}")
     end_section = False
+    has_sub = bool(getattr(state["current_section"], "subsections", None))
     if state["current_count_batch"] == 0:
-        if len(state["current_section"].subsections):
+        if has_sub:
             num_subsection = len(state["current_section_batch"][state["current_count_batch"]])
         else:
             num_subsection = 1
@@ -507,7 +513,7 @@ async def section_synthesizer(state: State):
         else:
             section_dict, table_count = get_table(section_dict, section_count + 1, state["tab_count_section"], state["language"])
         state["other_sections"].append(section_dict)
-        if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not len(state["current_section"].subsections):
+        if state["current_count_batch"] == len(state["current_section_batch"]) - 1 or not has_sub:
             if len(state["other_sections"]) - 1 == len(state["outline"]["outline"]):
                 end_section = True
         return {
