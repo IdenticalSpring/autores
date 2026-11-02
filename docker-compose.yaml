@@ -8,10 +8,10 @@ services:
     env_file:
       - .env
     environment:
-      # Giới hạn số job xử lý song song mỗi listener (tối ưu server 2-4 vCPU, tiết kiệm RAM)
-      LISTENER_CONCURRENCY: "${LISTENER_CONCURRENCY:-3}"
-    # Chặn 1 container ăn hết RAM host (tối ưu cho VPS 4GB-8GB)
-    mem_limit: "${APP_MEM_LIMIT:-2.5g}"
+      # Giới hạn số job xử lý song song mỗi listener (mặc định code = 100)
+      LISTENER_CONCURRENCY: "${LISTENER_CONCURRENCY:-8}"
+    # Chặn 1 container ăn hết RAM host (4 listener chạy chung 1 process)
+    mem_limit: "${APP_MEM_LIMIT:-4g}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
     command: ["python", "main.py"]
@@ -20,24 +20,3 @@ services:
       options:
         max-size: "100m"
         max-file: "3"
-
-  autoresearching-model-manager:
-    container_name: autoresearching-model-manager
-    image: autoresearching-ai-dev:latest
-    network_mode: "host"
-    restart: always
-    env_file:
-      - .env
-    # Giới hạn RAM tối đa 256MB cho Web UI (tiết kiệm tài nguyên máy, ~50MB RAM thực tế)
-    mem_limit: "${MM_MEM_LIMIT:-256m}"
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./.env:/app/.env:ro
-      - ./model_manager:/app/model_manager
-      - ./tmp:/app/tmp
-    command: ["uvicorn", "model_manager.main:app", "--host", "0.0.0.0", "--port", "8088"]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "2"

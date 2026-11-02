@@ -1,21 +1,14 @@
 {
   "event_type": "delete_documents",
-  "model_id": "deepseek-flash",
+  "model_id": "gemini-3.5-flash-lite",
   "user_id": "smoke-user",
-  "document_id": "e2e-live-user-documents-e70459",
+  "document_id": "smoke-delete-doc",
   "session_id": "smoke-delete-session",
-  "collection": "e2e-live-user-documents-e70459",
-  "data_id": "e2e-data-001",
+  "collection": "admin",
+  "data_id": "smoke-data-id-1",
   "documents": [
     {
-      "uuids": [
-        "43a32029-73a7-4e89-abb5-3e93a77a7b17",
-        "768546ec-fadd-4d43-9779-d7f6f6a30a42",
-        "7f9e8a55-6484-49da-9e10-09e475a1132a",
-        "8c8d941f-bd6f-49b1-b2f9-76b2ec4f6132",
-        "d3dc158d-34ff-4886-9c5a-deb620ac4a75",
-        "f419db3a-0674-4dc5-a72f-5a83a894a361"
-      ]
+      "uuids": ["550e8400-e29b-41d4-a716-446655440000"]
     }
   ]
 }

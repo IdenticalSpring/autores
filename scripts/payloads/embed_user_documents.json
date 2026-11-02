@@ -2,14 +2,12 @@
   "user_id": "650000000000000000000001",
   "document_id": "650000000000000000000002",
   "session_id": "smoke-session-embed-docs",
-  "model_id": "deepseek-flash",
+  "model_id": "gemini-3.5-flash-lite",
   "language": "Tiếng Việt",
   "processed_docs": [
     {
-      "url": "autoresearching/sample/sample.pdf",
-      "title": "AI fixture sample"
+      "url": "users/sample/sample.pdf",
+      "title": "Nghiên cứu về Livestream bán hàng và hành vi mua sắm"
     }
-  ],
-  "event_type": "embed_user_documents",
-  "data_id": "e2e-data-001"
+  ]
 }
