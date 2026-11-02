@@ -3,6 +3,7 @@ from aiokafka import AIOKafkaProducer
 from aiokafka.consumer import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord, TopicPartition, OffsetAndMetadata
 import asyncio
+import contextvars
 import logging
 import json
 import os
@@ -19,6 +20,17 @@ from utils import get_mongodb_client, get_redis_client, get_redis_stack_client, 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 logger = logging.getLogger(__name__)
+
+# Request đang xử lý trong task hiện tại. Dùng để echo `event_type` + identifier
+# vào MỌI response publish ra (kể cả nhánh lỗi sớm / EVENT_NOT_FOUND) mà không phải
+# vá từng nhánh trong 4 listener (F10, incident 2026-11-01: BE báo "timeout oan"
+# vì response thiếu session_id/conv_id).
+_request_context: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "listener_request_context", default={}
+)
+
+# 5 identifier BE dùng để ghép request ↔ response.
+IDENTIFIER_FIELDS = ("user_id", "document_id", "session_id", "conv_id", "data_id")
 
 
 class BaseAsyncListener(ABC):
@@ -131,7 +143,13 @@ class BaseAsyncListener(ABC):
             try:
                 try:
                     async with self._semaphore:
-                        await self._handle_record(record=record)
+                        # F10: mọi response publish trong handler đều echo identifier
+                        # của record này (kể cả nhánh lỗi/return sớm).
+                        self._set_request_context_from_record(record)
+                        try:
+                            await self._handle_record(record=record)
+                        finally:
+                            self.clear_request_context()
                 except asyncio.CancelledError:
                     record_failed = True
                     logger.warning(f"Worker-{worker_id} cancelled while processing record.")
@@ -245,6 +263,68 @@ class BaseAsyncListener(ABC):
                 error_msg = message.get("error", "An unspecified error occurred.")
                 await send_health_check(id=_id, status=AIStatus.ERROR, topic=topic, event_type=event_type, error=error_code, error_message=error_msg)
 
+    @staticmethod
+    def attach_identifiers(message: dict, value: dict) -> None:
+        """Đảm bảo MỌI response đều có `event_type` + identifier để BE ghép job.
+
+        Thiếu field này ⇒ BE/harness chỉ thấy "timeout" dù AI đã xử lý xong
+        (incident 2026-11-01: response success của `ai_in_doc` không echo session_id).
+        Chỉ THÊM field, không sửa field cũ ⇒ tương thích ngược.
+        """
+        if not isinstance(message, dict) or not isinstance(value, dict):
+            return
+        for identifier in IDENTIFIER_FIELDS:
+            if value.get(identifier):
+                message.setdefault(identifier, value[identifier])
+        if value.get("event_type"):
+            message.setdefault("event_type", value["event_type"])
+
+    @staticmethod
+    def normalize_percent_list(values, field_name: str = "headings_percent"):
+        """Chuẩn hoá danh sách tỉ lệ về thang **0..1**.
+
+        Contract (AI quyết 2026-11-01): `headings_percent` / `new_headings_percent`
+        là fraction 0..1 và tổng = 1. BE từng gửi thang 0..100 (`15/25/60`) ⇒
+        `word_count` bị nhân 15 lần (`outline_generation.py:372`) và
+        `update_outline_percent` luôn fail (`sum != 1`).
+        Guard này tự chia 100 + log WARN để không chặn release, WARN còn xuất hiện
+        nghĩa là BE chưa sửa contract.
+        """
+        if not isinstance(values, list) or not values:
+            return values
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+            return values
+        if all(v <= 1.0 for v in values):
+            return values
+        normalized = [round(float(v) / 100.0, 6) for v in values]
+        logger.warning(
+            f"[{field_name}] nhận thang 0..100 {values} → tự chuẩn hoá về 0..1 {normalized}. "
+            "BE phải đổi contract sang fraction (tổng = 1)."
+        )
+        return normalized
+
+    @staticmethod
+    def set_request_context(value: dict) -> None:
+        _request_context.set(value if isinstance(value, dict) else {})
+
+    @staticmethod
+    def clear_request_context() -> None:
+        _request_context.set({})
+
+    @staticmethod
+    def current_request_context() -> dict:
+        return _request_context.get() or {}
+
+    @classmethod
+    def _set_request_context_from_record(cls, record: ConsumerRecord) -> None:
+        """Đọc payload của record **một lần** để làm context echo cho mọi response."""
+        try:
+            value = json.loads(record.value)
+        except Exception:
+            cls.clear_request_context()
+            return
+        cls.set_request_context(value if isinstance(value, dict) else {})
+
     async def test_error(self, user_id: str, error_code: int):
         # return {}
         if user_id in ["683802b787b2175089765cc8"]:
@@ -276,6 +356,9 @@ class BaseAsyncListener(ABC):
         return llm_key, db_key, search_web_key
     
     async def send_message(self, producer, topic, message, document_id: str = ""):
+        # F10: echo `event_type` + 5 identifier ở tầng publish ⇒ không nhánh nào
+        # (success, lỗi sớm, EVENT_NOT_FOUND, timeout) có thể "quên" field này.
+        self.attach_identifiers(message, self.current_request_context())
         key = str(uuid.uuid4())
         try:
             _ = await producer.send_and_wait(

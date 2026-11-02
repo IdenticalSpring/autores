@@ -36,7 +36,9 @@ from write_reports.src.modules.utils.utils_func import (
     get_survey_questions_table,
     load_current_section,
     add_unique,
-    assign_section_logs
+    assign_section_logs,
+    section_heading,
+    strip_heading_number,
 )
 from write_reports.src.modules.write_prompt_bank import (
     batch_prompt,
@@ -173,7 +175,7 @@ async def choose_refs(state: State):
     }
     lit_review = ["related work", "related works", "literature review", "tổng quan tài liệu"]
     headings = [
-        section["heading"].split(" ", 1)[-1] if "." in section["heading"].split(" ")[0] else section["heading"] 
+        strip_heading_number(section_heading(section)) 
         for section in state["outline"]["outline"]
     ]
     found_lit_review = False

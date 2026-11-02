@@ -332,7 +332,12 @@ async def send_health_check(
         # get_redis_client() is a SYNC factory returning an ASYNC Redis client and it
         # initialises the client on first use. Do not `await` it (previous code did).
         redis_client = get_redis_client()
-        url = f"http://{settings.REDIS_HOST}:4002/health-check/{id}"
+        # Webhook health-check do BE cung cấp. Port/host cấu hình được để khi BE
+        # đổi cổng không phải sửa code (trước đây hard-code 4002 → mọi lần gọi
+        # đều "All connection attempts failed" và bị hiểu nhầm là lỗi AI).
+        health_host = getattr(settings, "HEALTH_CHECK_HOST", "") or settings.REDIS_HOST
+        health_port = getattr(settings, "HEALTH_CHECK_PORT", 0) or 4002
+        url = f"http://{health_host}:{health_port}/health-check/{id}"
         headers = {
             "accept": "application/json",
             "x-api-key": settings.API_KEY_ID,
@@ -366,5 +371,10 @@ async def send_health_check(
                     response = await client.put(url, headers=headers, json=data)
                     response.raise_for_status()
                 except Exception as e:
-                    logger.error(AIERROR(600, str(e)))
+                    # KHÔNG phải lỗi LLM: đây là webhook trạng thái của BE.
+                    # Log dạng warning + nêu URL để không bị chẩn đoán nhầm.
+                    logger.warning(
+                        f"[health-check] Không gọi được {url} ({type(e).__name__}: {e}). "
+                        "Kiểm tra BE có bật webhook health-check ở host/port này không."
+                    )
         await redis_client.set(key, json.dumps(data), ex=ttl)

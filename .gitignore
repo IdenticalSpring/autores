@@ -125,3 +125,11 @@ task_*.md
 DOCS_INDEX.md
 docs/KAFKA_INTEGRATION_GUIDE.md
 output_artifacts/
+
+# ==============================================================================
+# Markdown docs: bỏ theo dõi mọi file .md chưa tracked (README đã track giữ lại)
+# ==============================================================================
+*.md
+# File cụ thể (yêu cầu local-only)
+WRITE_EDIT_REPORT_PARSED_VALUE_CONTRACT.md
+.rooignore

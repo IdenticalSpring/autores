@@ -59,6 +59,82 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+def safe_qdrant_store(collection_name: str, embeddings):
+    """Open an existing Qdrant collection; return None if it does not exist yet.
+
+    Prevents "Qdrant 404: Collection doesn't exist" crashes when the user has
+    not uploaded/embedded any document for this document_id.
+    """
+    try:
+        return QdrantVectorStore.from_existing_collection(
+            url=settings.QDRANT_URL,
+            collection_name=collection_name,
+            embedding=embeddings,
+        )
+    except Exception as e:
+        logger.warning(f"Qdrant collection {collection_name} not ready: {e}")
+        return None
+
+
+async def safe_similarity_search(store, **kwargs) -> list:
+    """Similarity search that returns [] when the vector store is missing or fails."""
+    if store is None:
+        return []
+    try:
+        return await store.asimilarity_search(**kwargs)
+    except Exception as e:
+        logger.warning(f"Qdrant similarity search failed, fallback to empty: {e}")
+        return []
+
+
+def parse_word_count_range(word_count_str: str | int | float | None) -> tuple[int, int]:
+    """Parse word_count_str (e.g. '5000-8000', '10000', 5000) safely into (min_words, max_words)."""
+    if not word_count_str:
+        return 3000, 5000
+    cleaned = str(word_count_str).strip()
+    if "-" in cleaned:
+        parts = [p.strip() for p in cleaned.split("-") if p.strip()]
+        nums: list[int] = []
+        for part in parts:
+            digits = "".join(ch for ch in part if ch.isdigit())
+            if digits:
+                nums.append(int(digits))
+        if len(nums) >= 2:
+            return min(nums[0], nums[1]), max(nums[0], nums[1])
+        elif len(nums) == 1:
+            n = nums[0]
+            return int(n * 0.8), n
+    else:
+        digits = "".join(ch for ch in cleaned if ch.isdigit())
+        if digits:
+            n = int(digits)
+            return int(n * 0.8), n
+    return 3000, 5000
+
+
+def format_key_points(key_points) -> str:
+    """Chuẩn hoá `key_points` thành text cho prompt.
+
+    Dữ liệu cũ trong Mongo có thể là `list[str]`, còn dữ liệu mới là `dict[str, str]`.
+    Trước đây `_process_chunk` gọi thẳng `.items()` ⇒ `AttributeError: 'list' object
+    has no attribute 'items'` khi cache trả list (smoke 2026-11-01).
+    """
+    if isinstance(key_points, dict):
+        return "\n---\n".join(f"{i + 1}. {k}: {v}" for i, (k, v) in enumerate(key_points.items()))
+    if isinstance(key_points, list):
+        return "\n---\n".join(f"{i + 1}. {point}" for i, point in enumerate(key_points))
+    return ""
+
+
+def format_paper_prompt(paper_count: int, paper: dict) -> str:
+    """1 block prompt cho 1 paper tham chiếu (an toàn với field thiếu)."""
+    return (
+        f"Paper's index: {paper_count + 1}\n"
+        f"Paper's title: {paper.get('title', '')}\n"
+        f"Paper key points:\n{format_key_points(paper.get('key_points'))}"
+    )
+
+
 class OutlineGeneration():
 
     def __init__(self, document_id: str, mongo_client: AsyncMongoClient, model_id: str, language: str, llm_key: str, max_tokens: int):
@@ -87,13 +163,28 @@ class OutlineGeneration():
     async def get_key_points(self, papers: list[dict]) -> dict:
         db = self.mongo_client["user_documents"]
         collection = db["reports_refs"]
-        cached_data = await collection.find_one({"_id": self.document_id})
-        documents = cached_data["documents"]
-        doc_map = {d["title"]: d for d in documents if "title" in d}
+        cached_data = await collection.find_one({"_id": self.document_id}) or {}
+        documents = cached_data.get("documents") or []
+        doc_map = {
+            d["title"]: d for d in documents if isinstance(d, dict) and "title" in d
+        }
+        missing: list[str] = []
         for paper in papers:
-            document = doc_map[paper["title"]]
-            paper["key_points"] = document["key_points"]
-            paper["source"] = document["source"]
+            document = doc_map.get(paper.get("title"))
+            if document is None:
+                # Cache miss (chưa upload tài liệu / fixture thiếu) — KHÔNG được crash
+                # `TypeError: 'NoneType' object is not subscriptable` (smoke 2026-11-01).
+                missing.append(str(paper.get("title")))
+                paper.setdefault("key_points", [])
+                paper.setdefault("source", "")
+                continue
+            paper["key_points"] = document.get("key_points", [])
+            paper["source"] = document.get("source", "")
+        if missing:
+            logger.warning(
+                f"[{self}] get_key_points: {len(missing)}/{len(papers)} paper không có cache "
+                f"trong reports_refs → key_points rỗng. Ví dụ: {missing[:3]}"
+            )
         return papers
 
     async def get_subheading_detail(
@@ -133,12 +224,7 @@ class OutlineGeneration():
                 if error.status_code in [401, 403, 429, 500]:
                     raise error
                 logger.info(f"[{self}] Fail to generate subheading description")
-                word_count = section.get("word_count", "0-0").split("-")
-                try:
-                    w_low = int(word_count[0]) if len(word_count) > 0 and word_count[0].isdigit() else 200
-                    w_high = int(word_count[1]) if len(word_count) > 1 and word_count[1].isdigit() else 500
-                except Exception:
-                    w_low, w_high = 200, 500
+                w_low, w_high = parse_word_count_range(section.get("word_count"))
                 num_subs = max(len(section.get("subheadings", [])), 1)
                 lower_bound = w_low // num_subs
                 upper_bound = w_high // num_subs
@@ -281,21 +367,25 @@ class OutlineGeneration():
         headings_percent: list[float], 
         final_proposal: dict,
     ) -> tuple[dict, int, int]:
-        word_count = [
-            int(num) for num in word_count_str.split("-")
-        ]
+        low_count, high_count = parse_word_count_range(word_count_str)
         headings_word_count = [
-            f"{int(word_count[0] * heading_percent)}-{int(word_count[1] * heading_percent)}" 
+            f"{int(low_count * heading_percent)}-{int(high_count * heading_percent)}" 
             for heading_percent in headings_percent
         ]
         for section_num, heading_word_count in zip(range(len(outline)), headings_word_count):
             outline[section_num]["word_count"] = heading_word_count
         logger.info(f"[{self}] Generating AI outline")
+        if outline_code is None:
+            outline_code = []
+        if len(outline_code) < len(outline):
+            outline_code = list(outline_code) + ["" for _ in range(len(outline) - len(outline_code))]
         new_outline = await self.update_outline(field, domain, research_type, final_proposal, outline, outline_code)
         new_outline_code: list[str] = []
         for section in range(len(new_outline)):
-            new_outline_code.append(new_outline[section]["code"])
-            del new_outline[section]["code"]
+            code_val = new_outline[section].get("code", "")
+            new_outline_code.append(code_val)
+            if "code" in new_outline[section]:
+                del new_outline[section]["code"]
         logger.info(f"[{self}] Generated AI outline")
         tasks = [self.get_heading_description(outline, final_proposal, section) for section in new_outline]
         results = await asyncio.gather(*tasks)
@@ -316,7 +406,9 @@ class OutlineGeneration():
                     subsection.subheading = f"{section_count + 1}.{subsection_count + 1}. " + subsection.subheading
         result = final_outline.model_dump()
         for section in range(len(result["outline"])):
-            result["outline"][section]["code"] = new_outline_code[section]
+            result["outline"][section]["code"] = (
+                new_outline_code[section] if section < len(new_outline_code) else ""
+            )
         return result, self.input_tokens, self.output_tokens
     
     async def get_user_refs_usage(
@@ -391,16 +483,19 @@ class OutlineGeneration():
         return None, None
 
     async def sort_subheading(self, final_subs: list[dict], section_heading: str) -> list[dict]:
+        if len(final_subs) <= 1:
+            return final_subs
         len_sub = 0
         trial = 0
+        priorities: list = []
         content = {
             "section_heading": section_heading,
             "subheadings": final_subs
         }
-        while len_sub != len(final_subs) and trial < 5:    
+        while len_sub != len(final_subs) and trial < 5:
             error, success, ordered_section, input_tokens, output_tokens = await get_answer_with_schema(
-                self.id, 
-                self.llm, 
+                self.id,
+                self.llm,
                 REORDER_SUBHEADINGS_PRIORITIES_V2,
                 str(content),
                 ReorderOutline,
@@ -408,25 +503,55 @@ class OutlineGeneration():
             self.input_tokens += input_tokens
             self.output_tokens += output_tokens
             if not success:
-                if error.status_code in [401, 403, 429, 500]:
+                # 401/403/429 = lỗi auth/quota: retry vô nghĩa ⇒ trả lỗi ngay.
+                if error is not None and getattr(error, "status_code", None) in [401, 403, 429]:
                     raise error
-            else:
-                priorities = ordered_section.reorder_outline
-                if priorities[0] != min(priorities):
-                    current_min = min(priorities)
-                    delta = priorities[0] - current_min
-                    priorities = [p + delta for p in priorities]
-                    priorities[0] = current_min
-
-                if priorities[-1] != max(priorities):
-                    current_max = max(priorities)
-                    delta = current_max - priorities[-1]
-                    priorities = [p - delta for p in priorities]
-                    priorities[-1] = current_max
-                len_sub = len(priorities)
+                # Mọi lỗi khác (kể cả 500 do parse rỗng) PHẢI tăng trial,
+                # nếu không vòng while sẽ lặp vô hạn tới khi BE timeout 1800s (F9).
                 trial += 1
-        if len_sub != len(final_subs):
-            logger.warning("Mismatch order. Returning unordered subheadings.")
+                logger.warning(
+                    f"[{self}] Reorder subheadings failed (attempt {trial}/5): "
+                    f"{getattr(error, 'message', error)}"
+                )
+                continue
+
+            raw_priorities = list(getattr(ordered_section, "reorder_outline", None) or [])
+            # Chỉ nhận số; chuỗi số đã được ép ở tầng parse, còn lại bỏ qua.
+            priorities = [
+                int(p) for p in raw_priorities if isinstance(p, (int, float)) and not isinstance(p, bool)
+            ]
+            if not priorities:
+                trial += 1
+                logger.warning(
+                    f"[{self}] Reorder subheadings trả rỗng (attempt {trial}/5) "
+                    f"— giữ nguyên thứ tự tạm thời"
+                )
+                continue
+            if len(priorities) != len(final_subs):
+                trial += 1
+                logger.warning(
+                    f"[{self}] Reorder subheadings sai số lượng: cần {len(final_subs)}, "
+                    f"nhận {len(priorities)} (attempt {trial}/5)"
+                )
+                continue
+            if priorities[0] != min(priorities):
+                current_min = min(priorities)
+                delta = priorities[0] - current_min
+                priorities = [p + delta for p in priorities]
+                priorities[0] = current_min
+
+            if priorities[-1] != max(priorities):
+                current_max = max(priorities)
+                delta = current_max - priorities[-1]
+                priorities = [p - delta for p in priorities]
+                priorities[-1] = current_max
+            len_sub = len(priorities)
+            trial += 1
+        if len_sub != len(final_subs) or not priorities:
+            logger.warning(
+                f"[{self}] Mismatch order sau 5 lần thử (cần {len(final_subs)} subheading, "
+                f"nhận {len(priorities)}) → giữ nguyên thứ tự gốc"
+            )
             return final_subs
         else:
             sortable_items = []
@@ -450,7 +575,11 @@ class OutlineGeneration():
         outline_code: list[str],
     ) -> list[dict]:
         for heading in range(len(default_outline)):
-            new_subheadings = [item["subheading"] for item in default_outline[heading]["subheadings"]]
+            subs = default_outline[heading].get("subheadings") or []
+            new_subheadings = [
+                item["subheading"] if isinstance(item, dict) and "subheading" in item else str(item)
+                for item in subs
+            ]
             default_outline[heading]["subheadings"] = new_subheadings
         content = f"""
         Default outline:
@@ -467,7 +596,8 @@ class OutlineGeneration():
         {self.language}
         """
         for heading in range(len(default_outline)):
-            default_outline[heading]["code"] = outline_code[heading]
+            code_val = outline_code[heading] if heading < len(outline_code) else ""
+            default_outline[heading]["code"] = code_val
         error, success, updated_outline, input_tokens, output_tokens = await get_answer_with_schema( 
             self.id, 
             self.llm, 
@@ -516,9 +646,10 @@ class OutlineGeneration():
                     if original_subs[0] in final_subs:
                         final_subs.pop(final_subs.index(original_subs[0]))
                     final_subs.insert(0, original_subs[0])
-                    if original_subs[-1] in final_subs:
-                        final_subs.pop(final_subs.index(original_subs[-1]))
-                    final_subs.append(original_subs[-1])
+                    if len(original_subs) > 1:
+                        if original_subs[-1] in final_subs:
+                            final_subs.pop(final_subs.index(original_subs[-1]))
+                        final_subs.append(original_subs[-1])
                 if new_sub:
                     updated_section["subheadings"] = await self.sort_subheading(final_subs, updated_section["heading"])
                 else:
@@ -548,6 +679,7 @@ class OutlineGeneration():
         else:
             len_order_outline = 0
             trial = 0
+            ordered_priorities: list[int] = []
             content = f"""
             User's field:
             {field}
@@ -562,30 +694,50 @@ class OutlineGeneration():
             List of default headings:
             {[heading["heading"] for heading in default_outline]}
             """
-            while len_order_outline != len(final_outline) and trial < 5:
+            while trial < 5:
                 error, success, ordered_outline, input_tokens, output_tokens = await get_answer_with_schema(
-                    self.id, 
-                    self.llm, 
-                    REORDER_OUTLINE, 
-                    content, 
+                    self.id,
+                    self.llm,
+                    REORDER_OUTLINE,
+                    content,
                     ReorderOutline,
                 )
                 self.input_tokens += input_tokens
                 self.output_tokens += output_tokens
                 if not success:
-                    if error.status_code in [401, 403, 429, 500]:
+                    if error is not None and getattr(error, "status_code", None) in [401, 403, 429]:
                         raise error
-                else:
-                    len_order_outline = len(ordered_outline.reorder_outline)
+                    # Không tăng trial ở đây từng làm vòng lặp vô hạn (F9).
                     trial += 1
-            if len_order_outline != len(final_outline):
-                logger.warning("Mismatch order. Returning unordered outline.")
+                    logger.warning(
+                        f"[{self}] Reorder outline failed (attempt {trial}/5): "
+                        f"{getattr(error, 'message', error)}"
+                    )
+                    continue
+                raw_priorities = list(getattr(ordered_outline, "reorder_outline", None) or [])
+                ordered_priorities = [
+                    int(p) for p in raw_priorities if isinstance(p, (int, float)) and not isinstance(p, bool)
+                ]
+                trial += 1
+                if len(ordered_priorities) != len(final_outline):
+                    logger.warning(
+                        f"[{self}] Reorder outline sai số lượng: cần {len(final_outline)}, "
+                        f"nhận {len(ordered_priorities)} (attempt {trial}/5)"
+                    )
+                    continue
+                len_order_outline = len(ordered_priorities)
+                break
+            if len_order_outline != len(final_outline) or not ordered_priorities:
+                logger.warning(
+                    f"[{self}] Mismatch order sau 5 lần thử (cần {len(final_outline)} heading, "
+                    f"nhận {len(ordered_priorities)}) → giữ nguyên thứ tự gốc"
+                )
                 return final_outline
             sortable_items = []
             for i, section in enumerate(final_outline):
                 sortable_items.append({
                     "item": section,
-                    "priority": ordered_outline.reorder_outline[i],
+                    "priority": ordered_priorities[i],
                     "original_index": i
                 })
             sorted_list = sorted(sortable_items, key=lambda x: (x['priority'], x['original_index']))
@@ -787,11 +939,7 @@ class OutlineGeneration():
         outlines_collection = admin_db["outlines"]
         collection_chunk = admin_db["reports_refs_chunks"]
         embeddings = get_embeddings(db_key)
-        store = QdrantVectorStore.from_existing_collection(
-            url=settings.QDRANT_URL,
-            collection_name=self.document_id,
-            embedding=embeddings
-        )
+        store = safe_qdrant_store(self.document_id, embeddings)
         try:
             encoding = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL)
         except Exception:
@@ -1306,7 +1454,7 @@ class OutlineGeneration():
                     {subsection["subheading"]} - {subsection["detail_description"]}
 
                 4.  **Reference Paper:**
-                    {[f"Paper's index: {paper_count + 1}\nPaper's title: {paper["title"]}\nPaper key points:\n{[f"{i + 1}. {k}: {v}\n---\n" for i, (k, v) in enumerate(paper["key_points"].items())]}" for paper_count, paper in enumerate(papers_for_prompt)]}
+                    {[format_paper_prompt(paper_count, paper) for paper_count, paper in enumerate(papers_for_prompt)]}
 
                 5.  **Usage Type Categories:** When creating a plan, you must choose a `usage_type` from this list that best fits the paper's role:
                     - `BACKGROUND_CONTEXT`: Provides background context and establishes the current situational awareness.
@@ -1493,12 +1641,21 @@ class OutlineGeneration():
         Process a single reference: Search Vector DB, Write Paragraph, Save Chunk.
         Returns: (section_index, subheading_index, input_tokens, output_tokens, embed_tokens, usage_row)
         """
-        ref_paper = next((s for s in research_papers if s.get("title") == ref["title"]))
-        selected_points = [
-            f"- {k}: {v}" 
-            for i, (k, v) in enumerate(ref_paper["key_points"].items()) 
-            if i + 1 in ref["key_points_used"]
-        ]
+        ref_paper = next(
+            (s for s in research_papers if s.get("title") == ref.get("title")), None
+        )
+        key_points = (ref_paper or {}).get("key_points")
+        # `key_points` có thể là dict {label: detail} hoặc list[str] (dữ liệu cache cũ).
+        if isinstance(key_points, dict):
+            all_points = [
+                (index + 1, f"- {k}: {v}") for index, (k, v) in enumerate(key_points.items())
+            ]
+        elif isinstance(key_points, list):
+            all_points = [(index + 1, f"- {point}") for index, point in enumerate(key_points)]
+        else:
+            all_points = []
+        used_points = set(ref.get("key_points_used") or [])
+        selected_points = [text for index, text in all_points if index in used_points]
         
         ref_summary = f"""Paper title\n: {ref["title"]}
         Paper's keypoints:
@@ -1511,7 +1668,7 @@ class OutlineGeneration():
             ref_summary,
         )
 
-        results = await store.asimilarity_search(
+        results = await safe_similarity_search(store, 
             query=search_query, 
             k=1,
             filter=models.Filter(
@@ -1680,11 +1837,7 @@ class OutlineGeneration():
         admin_db = self.mongo_client["admin"]
         collection_chunk = admin_db["reports_refs_chunks"]
         embeddings = get_embeddings(db_key)
-        store = QdrantVectorStore.from_existing_collection(
-            url=settings.QDRANT_URL,
-            collection_name=self.document_id,
-            embedding=embeddings
-        )
+        store = safe_qdrant_store(self.document_id, embeddings)
         try:
             encoding = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL)
         except Exception:
@@ -1769,7 +1922,7 @@ class OutlineGeneration():
                                 ref["usage"], 
                                 ref_paper["key_points"],
                             )
-                            results = await store.asimilarity_search(
+                            results = await safe_similarity_search(store, 
                                 query=search_query,  
                                 k=1,
                                 filter=models.Filter(
@@ -1781,7 +1934,7 @@ class OutlineGeneration():
                                     ]
                                 )
                             )
-                            chunk = f"...{results[0].page_content}..."
+                            chunk = f"...{results[0].page_content}..." if results else ""
                             chunk_id = hash_blake3(chunk)
                             try:
                                 await collection_chunk.insert_one({"_id": chunk_id, "content": chunk})
@@ -1861,11 +2014,7 @@ class OutlineGeneration():
         doc_configs_collection = admin_db["document_configurations"]
 
         embeddings = get_embeddings(db_key)
-        store = QdrantVectorStore.from_existing_collection(
-            url=settings.QDRANT_URL,
-            collection_name=self.document_id,
-            embedding=embeddings
-        )
+        store = safe_qdrant_store(self.document_id, embeddings)
         try:
             encoding = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL)
         except Exception:
@@ -2080,11 +2229,7 @@ class OutlineGeneration():
                 encoding = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL)
             except Exception:
                 encoding = tiktoken.get_encoding("cl100k_base")
-            store = QdrantVectorStore.from_existing_collection(
-                url=settings.QDRANT_URL,
-                collection_name=self.document_id,
-                embedding=embeddings
-            )
+            store = safe_qdrant_store(self.document_id, embeddings)
             logger.info(f"[{self}] Mapping user papers to relevant sections...")
             heading_map, _ = await self._map_papers_to_sections(
                 summary, final_outline["outline"], docs, 3

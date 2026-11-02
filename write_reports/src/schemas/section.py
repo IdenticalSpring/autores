@@ -20,7 +20,7 @@ class SubSectionDescription(BaseModel):
     subheading_word_count: str = Field(
         description="Limit word range"
     )
-    refs: list[RefsUsage]
+    refs: list[RefsUsage] = Field(default_factory=list)
 
 
 class SectionDescription(BaseModel):

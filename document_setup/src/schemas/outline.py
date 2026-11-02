@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
 
@@ -95,7 +95,19 @@ class UpdatedOutline(BaseModel):
 
 
 class ReorderOutline(BaseModel):
-    reorder_outline: list[int] = Field(None, description="List of the headings ordering")
+    """Kết quả sắp xếp lại heading/subheading.
+
+    `reorder_outline` là **Optional** vì model (đặc biệt DeepSeek đi plain-JSON) có
+    thể trả `{}` hoặc bỏ field. Caller phải coi `None` là "không có kết quả" để
+    retry/fallback — TUYỆT ĐỐI không gọi `len()` trực tiếp (từng gây TypeError).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    reorder_outline: list[int] | None = Field(
+        None,
+        description="Danh sách thứ tự (index 1-based) cho từng heading/subheading",
+    )
 
 
 class UserRefsUsage(BaseModel):

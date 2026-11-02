@@ -35,6 +35,34 @@ model_list:
       model: groq/mixtral-8x7b-32768
       api_key: "os.environ/GROQ_API_KEY"
 
+  # ============================================================================
+  # DEEPSEEK (provider chính - thay Gemini free tier khi hết quota)
+  # Alias "local-*": get_llm() route vào LiteLLM qua nhánh startswith("local")
+  # nên KHÔNG cần sửa code Python, KHÔNG cần tạo AI_KEY:* trong Redis.
+  # ============================================================================
+  - model_name: local-deepseek
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_key: "os.environ/DEEPSEEK_API_KEY"
+
+  # Bản lớn (pro) cho bước cần suy luận nặng: proposal, phương pháp luận
+  - model_name: local-deepseek-pro
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_key: "os.environ/DEEPSEEK_API_KEY"
+
+  # Legacy alias (deepseek-chat/reasoner đã ngừng 2026-07-24) - giữ để tương thích
+  - model_name: local-deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_key: "os.environ/DEEPSEEK_API_KEY"
+
+  # Fallback rẻ/nhanh khi DeepSeek lỗi 429/402/503
+  - model_name: local-fallback
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: "os.environ/GROQ_API_KEY"
+
 general_settings:
   dangerously_permit_weak_or_unset_master_key: true
 

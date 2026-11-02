@@ -24,6 +24,11 @@ class ModelManagerSettings(BaseSettings):
     OPEN_AI_KEY: str = ""
     GEMINI_KEY: str = ""
     GROQ_API_KEY: str = ""
+    # DeepSeek: provider chính thay Gemini free tier
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    AI_DEFAULT_MODEL: str = "deepseek-flash"
+    DEEPSEEK_THINKING: str = "disabled"
     SERP_KEY: str = ""
     LOCALLLM_BASE_URL: str = "http://localhost:8000/v1"
 

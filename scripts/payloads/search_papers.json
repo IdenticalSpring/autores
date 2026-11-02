@@ -1,0 +1,27 @@
+{
+  "event_type": "search_papers",
+  "model_id": "deepseek-flash",
+  "user_id": "smoke-user",
+  "document_id": "smoke-search-papers",
+  "session_id": "smoke-session-search-papers",
+  "language": "Vietnamese",
+  "field": "Kinh tế",
+  "domain": "Thương mại điện tử",
+  "subdomains": ["Hành vi người tiêu dùng"],
+  "country_filter": "both",
+  "query": "livestream shopping purchase intention emerging market",
+  "proposal": {
+    "title": "Tác động của livestream bán hàng đến quyết định mua sắm",
+    "problem_statement": "Người tiêu dùng chịu ảnh hưởng bởi yếu tố tương tác trực tiếp.",
+    "motivation": "Hiểu rõ cơ chế tác động giúp doanh nghiệp tối ưu kênh bán.",
+    "research_gap": "Thiếu nghiên cứu thực nghiệm tại thị trường Việt Nam."
+  },
+  "search_range": "",
+  "is_tool": false,
+  "is_oa": true,
+  "oa_filter": true,
+  "cut_off_year_low": 2019,
+  "cut_off_year_high": 2026,
+  "downloaded_papers": [],
+  "use_web_search": false
+}

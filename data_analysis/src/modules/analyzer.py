@@ -338,8 +338,22 @@ class Analyzer():
                 }
                 return False, result
             else:                    
-                # Start with original markdown report
-                original_markdown = message["final_report"]
+                # Không đọc message["final_report"] trực tiếp: khi plan 0 bước,
+                # reporting subgraph không set key ⇒ KeyError ⇒ lỗi 631 (incident 2026-11-01).
+                final_report = message.get("final_report") or ""
+                if not final_report.strip():
+                    logs_dump = message.get("logs") or []
+                    logger.warning(
+                        f"[{_id}] graph không trả final_report — dựng report tối thiểu "
+                        f"từ {len(logs_dump)} log"
+                    )
+                    final_report = "# Data analysis report\n\n" + (
+                        "\n\n".join(map(str, logs_dump))
+                        if logs_dump
+                        else "Không có bước phân tích nào được thực thi. "
+                             "Vui lòng kiểm tra dữ liệu và tool_configs."
+                    )
+                original_markdown = final_report
                 
                 # Keep metadata in the persisted payload, but never render it as a result file.
                 generated_files = dict(message["generated_files"])

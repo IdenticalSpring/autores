@@ -1,0 +1,18 @@
+{
+  "event_type": "ai_in_doc",
+  "model_id": "deepseek-flash",
+  "user_id": "smoke-user",
+  "document_id": "smoke-ai-in-doc",
+  "session_id": "smoke-session-ai-in-doc",
+  "section_id": "section-1",
+  "language": "Vietnamese",
+  "paragraphs": "AI đang thay đổi giáo dục đại học.",
+  "paragraph_context": "Đoạn văn nằm trong phần tổng quan nghiên cứu về ứng dụng AI.",
+  "action": "fix_grammar",
+  "proposal": {
+    "title": "Tác động của AI đến giáo dục đại học",
+    "problem_statement": "Chất lượng phản hồi học tập chưa đồng đều.",
+    "motivation": "Nâng cao trải nghiệm học tập cá nhân hoá.",
+    "research_gap": "Thiếu bằng chứng thực nghiệm tại Việt Nam."
+  }
+}

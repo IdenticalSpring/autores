@@ -22,6 +22,7 @@ from write_reports.src.modules.seminar_graph_2 import get_graph as get_graph_sem
 from write_reports.src.modules.seminar_graph_3 import get_graph as get_graph_seminar_3
 from write_reports.src.modules.write_graph import get_graph as get_graph_content
 from write_reports.src.modules.gen_slide_md import get_graph as get_graph_gen_slide
+from write_reports.src.modules.utils.utils_func import normalize_outline
 from data_analysis.src.modules.proposed_method_v2 import get_graph as get_graph_proposed_method
 
 from event_type import WriteEvent
@@ -92,7 +93,7 @@ class WriteSectionEventListener(BaseAsyncListener):
                     "error_code": ERROR_DICT.get(value.get("event_type"), Error.UNKNOWN),
                     "error": str(e),
                 }
-                for identifier in ("user_id", "document_id", "session_id", "conv_id"):
+                for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
                     if identifier in value:
                         message[identifier] = value[identifier]
                 response_topic = (
@@ -259,8 +260,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                 field = value["field"]
                 domain = value["domain"]
                 references_style = value["references_style"]
-                papers_search = value["papers_search"]
-                outline = value["outline"]
+                papers_search = value.get("papers_search", [])
+                # F1/F8: BE có thể gửi `title` thay vì `heading` ⇒ chuẩn hoá 1 lần ở biên,
+                # mọi graph phía sau luôn đọc được section["heading"].
+                outline = normalize_outline(value["outline"])
                 outline_code = value["outline_code"]
                 db = value.get("db", "redis")
                 retry = value.get("retry", 2)
@@ -300,7 +303,6 @@ class WriteSectionEventListener(BaseAsyncListener):
                     "outline_code": outline_code,
                     "final_proposal": final_proposal,
                     "outline": outline,
-                    "papers_search": papers_search
                 }
                 
                 self.empty_value_check(inp)
@@ -629,8 +631,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                 field = value["field"]
                 domain = value["domain"]
                 final_proposal = value["final_proposal"]
-                papers_search = value["papers_search"]
-                outline = value["outline"]
+                papers_search = value.get("papers_search", [])
+                # F1/F8: BE có thể gửi `title` thay vì `heading` ⇒ chuẩn hoá 1 lần ở biên,
+                # mọi graph phía sau luôn đọc được section["heading"].
+                outline = normalize_outline(value["outline"])
                 outline_code = value["outline_code"]
                 resume_error = value.get("resume_error", False)
                 use_web_search = value.get("use_web_search", False)
@@ -662,7 +666,6 @@ class WriteSectionEventListener(BaseAsyncListener):
                     "outline_code": outline_code,
                     "final_proposal": final_proposal,
                     "outline": outline,
-                    "papers_search": papers_search
                 }
                 
                 self.empty_value_check(inp)
@@ -812,10 +815,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                 } 
                 self.field_validate_list_str(input_str)
             except KeyError as e:
-                message["error_code"] = WriteSectionError.INVALID_PARAMS
+                message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = f"Missing field '{str(e)}'"
             except ValueError as e:
-                message["error_code"] = WriteSectionError.INVALID_PARAMS
+                message["error_code"] = Error.INVALID_PARAMS
                 message["error"] = str(e)
                 logger.error(traceback.format_exc())
             if "error_code" not in message:
@@ -871,7 +874,7 @@ class WriteSectionEventListener(BaseAsyncListener):
                     logger.error(traceback.format_exc())
                 except NotImplementedError:
                     logger.error(f"[{_id}] Currently no support for model {model_id} for document_id: {document_id} - event {event_type}")
-                    message["error_code"] = WriteSectionError.NOT_IMPLEMENT_MODEL
+                    message["error_code"] = Error.NOT_IMPLEMENT_MODEL
                     message["error"] = f"Currently no support for model {model_id} for document_id: {document_id} - event {event_type}"
                 except Exception as e:
                     logger.error(f"[{_id}] Task failed for document_id: {document_id} - event {event_type}")
@@ -1147,8 +1150,10 @@ class WriteSectionEventListener(BaseAsyncListener):
                 field = value["field"]
                 domain = value["domain"]
                 references_style = value["references_style"]
-                papers_search = value["papers_search"]
-                outline = value["outline"]
+                papers_search = value.get("papers_search", [])
+                # F1/F8: BE có thể gửi `title` thay vì `heading` ⇒ chuẩn hoá 1 lần ở biên,
+                # mọi graph phía sau luôn đọc được section["heading"].
+                outline = normalize_outline(value["outline"])
                 outline_code = value["outline_code"]
                 db = value.get("db", "redis")
 
@@ -1850,7 +1855,9 @@ class WriteSectionEventListener(BaseAsyncListener):
         else:
             logger.info(f"[{_id}] Wrong event_type - event {event_type}")
             message["error_code"] = Error.EVENT_NOT_FOUND
-            message["error"] = f"Wrong event_type - event {event_type}" 
+            message["error"] = f"Wrong event_type - event {event_type}"
+        # Bắt buộc: echo event_type + identifier cho MỌI response (tránh BE thấy "timeout")
+        self.attach_identifiers(message, value)
         await self._finalize_task(redis_timer, task_success, _id, producer, topic, message, event_type)
 
 

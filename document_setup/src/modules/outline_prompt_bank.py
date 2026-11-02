@@ -361,10 +361,12 @@ You will be given a list of strings. Each string is a heading from a research ou
 </Input>
 
 <Output>
-Your response MUST be a JSON list of integers representing the sort priority for each heading.
-- The output list MUST have the exact same number of items as the input list.
-- Lower numbers should come first. For example, a heading with priority 1 will appear before a heading with priority 2.
-- Do NOT provide any explanation or surrounding text. Your entire response should be only the JSON list of priorities.
+Your response MUST be a single JSON **object** with exactly one key `reorder_outline`.
+`reorder_outline` is a JSON list of integers representing the sort priority for each heading.
+- The list MUST have the exact same number of items as the input list.
+- Lower numbers come first. For example, a heading with priority 1 will appear before a heading with priority 2.
+- Do NOT provide any explanation or surrounding text. Your entire response must be ONLY the JSON object, no code fence.
+- Shape: {"reorder_outline": [<int>, <int>, ...]}
 </Output>
 
 <Task>
@@ -377,7 +379,7 @@ Your response MUST be a JSON list of integers representing the sort priority for
     - Discussion / Interpretation
     - Conclusion / Future Work
 3.  **Map to Indices**: Create a new list that contains the 1-based indices of the original headings in their new, correct order. For example, if the third item in the input list should come first, the output list will start with `3`.
-4.  **Format and Return**: Return the result as a JSON list of integers.
+4.  **Format and Return**: Return ONLY a JSON object of the form {"reorder_outline": [...]} where the array is the list of integers.
 </Task>
 
 ---
@@ -387,7 +389,7 @@ Your response MUST be a JSON list of integers representing the sort priority for
 </InputExample>
 
 <OutputExample>
-[1, 4, 2, 3]
+{"reorder_outline": [1, 4, 2, 3]}
 </OutputExample>
 
 <Reasoning for Example>
@@ -516,12 +518,14 @@ You are an expert academic editor. You understand the logical progression of arg
 </Input>
 
 <Output>
-Your response MUST be a JSON list of integers representing the sort priority for each subheading.
-- The output list MUST have the exact same number of items as the input `subheadings` list.
-- Lower numbers should come first.
+Your response MUST be a single JSON **object** with exactly one key `reorder_outline`.
+`reorder_outline` is a JSON list of integers representing the sort priority for each subheading.
+- The list MUST have the exact same number of items as the input `subheadings` list.
+- Lower numbers come first.
 - **CRITICAL RULE 1**: The subheading that serves as a chapter introduction (e.g., 'Introduction', 'Overview', 'Giới thiệu chương') MUST be given the lowest priority number (e.g., 1).
 - **CRITICAL RULE 2**: The subheading that serves as a chapter summary or conclusion (e.g., 'Summary', 'Conclusion', 'Tóm tắt chương') MUST be given the highest priority number.
-- Do NOT provide any explanation or surrounding text. Your entire response should be only the JSON list of priorities.
+- Do NOT provide any explanation or surrounding text. Your entire response must be ONLY the JSON object, no code fence.
+- Shape: {"reorder_outline": [<int>, <int>, ...]}
 </Output>
 
 <Task>
@@ -529,7 +533,7 @@ Your response MUST be a JSON list of integers representing the sort priority for
 2.  **Analyze the Subheadings**: Read the provided list of `subheadings`.
 3.  **Determine Logical Flow**: Determine the most logical sequence for the subheadings based on the chapter's context.
 4.  **Enforce Special Ordering**: Assign the absolute lowest priority to the introductory subheading and the absolute highest priority to the summary subheading. Assign intermediate priorities to all other subheadings based on their logical order.
-5.  **Format and Return**: Return the result as a JSON list of integers.
+5.  **Format and Return**: Return ONLY a JSON object of the form {"reorder_outline": [...]} where the array is the list of integers.
 </Task>
 
 ---
@@ -547,7 +551,7 @@ Your response MUST be a JSON list of integers representing the sort priority for
 </InputExample>
 
 <OutputExample>
-[3, 1, 4, 2]
+{"reorder_outline": [3, 1, 4, 2]}
 </OutputExample>
 
 <Reasoning for Example>

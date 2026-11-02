@@ -25,6 +25,8 @@ def detect_provider(model_id: str) -> str:
     m = model_id.lower()
     if "gemini" in m:
         return "Google Gemini"
+    elif "deepseek" in m:
+        return "DeepSeek"
     elif "gpt" in m or "o1" in m or "o3" in m:
         return "OpenAI"
     elif "groq" in m:
@@ -71,9 +73,14 @@ class RedisModelService:
         return ""
 
     async def get_shared_key(self, key_type: str) -> str:
-        """Retrieve the active shared key for a provider from Redis or .env."""
-        r = await self.get_redis()
+        """Retrieve the active shared key for a provider prioritizing .env then Redis."""
         if key_type == "gemini":
+            env_val = self.read_env_key("GEMINI_KEY")
+            if env_val and not env_val.startswith("DUMMY_"):
+                return env_val
+            if settings.GEMINI_KEY and not settings.GEMINI_KEY.startswith("DUMMY_"):
+                return settings.GEMINI_KEY
+            r = await self.get_redis()
             for candidate in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "default"]:
                 raw = await r.get(f"AI_KEY:{candidate}")
                 if raw:
@@ -84,13 +91,32 @@ class RedisModelService:
                     val_str = str(val).strip("\"' ")
                     if val_str and val_str != "None" and not val_str.startswith("DUMMY_"):
                         return val_str
-            env_val = self.read_env_key("GEMINI_KEY")
-            if env_val:
+
+        elif key_type == "deepseek":
+            env_val = self.read_env_key("DEEPSEEK_API_KEY")
+            if env_val and not env_val.startswith("DUMMY_"):
                 return env_val
-            if settings.GEMINI_KEY and not settings.GEMINI_KEY.startswith("DUMMY_"):
-                return settings.GEMINI_KEY
+            if settings.DEEPSEEK_API_KEY and not settings.DEEPSEEK_API_KEY.startswith("DUMMY_"):
+                return settings.DEEPSEEK_API_KEY
+            r = await self.get_redis()
+            for candidate in ["deepseek-chat", "deepseek-reasoner", "default"]:
+                raw = await r.get(f"AI_KEY:{candidate}")
+                if raw:
+                    try:
+                        val = json.loads(raw)
+                    except Exception:
+                        val = raw
+                    val_str = str(val).strip("\"' ")
+                    if val_str and val_str != "None" and not val_str.startswith("DUMMY_"):
+                        return val_str
 
         elif key_type == "openai":
+            env_val = self.read_env_key("OPEN_AI_KEY")
+            if env_val and not env_val.startswith("DUMMY_"):
+                return env_val
+            if settings.OPEN_AI_KEY and not settings.OPEN_AI_KEY.startswith("DUMMY_"):
+                return settings.OPEN_AI_KEY
+            r = await self.get_redis()
             for candidate in ["gpt-4o", "gpt-4o-mini", "default"]:
                 raw = await r.get(f"AI_KEY:{candidate}")
                 if raw:
@@ -101,13 +127,51 @@ class RedisModelService:
                     val_str = str(val).strip("\"' ")
                     if val_str and val_str != "None" and not val_str.startswith("DUMMY_"):
                         return val_str
-            env_val = self.read_env_key("OPEN_AI_KEY")
-            if env_val:
-                return env_val
-            if settings.OPEN_AI_KEY and not settings.OPEN_AI_KEY.startswith("DUMMY_"):
-                return settings.OPEN_AI_KEY
 
         return ""
+
+    async def sync_from_env(self) -> int:
+        """Sync system keys from .env directly into Redis for standard AI models."""
+        r = await self.get_redis()
+        gemini_key = self.read_env_key("GEMINI_KEY") or settings.GEMINI_KEY or ""
+        gemini_key = gemini_key.strip("\"' ")
+        openai_key = self.read_env_key("OPEN_AI_KEY") or settings.OPEN_AI_KEY or ""
+        openai_key = openai_key.strip("\"' ")
+        deepseek_key = self.read_env_key("DEEPSEEK_API_KEY") or settings.DEEPSEEK_API_KEY or ""
+        deepseek_key = deepseek_key.strip("\"' ")
+        serp_key = self.read_env_key("SERP_KEY") or settings.SERP_KEY or ""
+        serp_key = serp_key.strip("\"' ")
+
+        updated_count = 0
+        if gemini_key and not gemini_key.startswith("DUMMY_"):
+            for m in [
+                "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash",
+                "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"
+            ]:
+                await r.set(f"AI_KEY:{m}", json.dumps(gemini_key))
+                updated_count += 1
+            await r.set("AI_KEY:default", json.dumps(gemini_key))
+            updated_count += 1
+
+        if openai_key and not openai_key.startswith("DUMMY_"):
+            for m in ["gpt-4o", "gpt-4o-mini"]:
+                await r.set(f"AI_KEY:{m}", json.dumps(openai_key))
+                updated_count += 1
+
+        if deepseek_key and not deepseek_key.startswith("DUMMY_"):
+            # V4 là model id hiện hành; deepseek-chat/deepseek-reasoner là legacy
+            # (docs: ngừng 2026-07-24) và trỏ về V4-Flash, nên không seed nữa.
+            for m in ["deepseek-flash", "deepseek-v4-pro"]:
+                await r.set(f"AI_KEY:{m}", json.dumps(deepseek_key))
+                updated_count += 1
+
+        if serp_key and not serp_key.startswith("DUMMY_"):
+            await r.set("AI_KEY:search_web_key", json.dumps(serp_key))
+            updated_count += 1
+
+        await self.save_backup()
+        logger.info(f"Synchronized {updated_count} models from .env into Redis.")
+        return updated_count
 
     async def list_models(self) -> List[Dict[str, Any]]:
         """Retrieve all registered AI models from Redis."""

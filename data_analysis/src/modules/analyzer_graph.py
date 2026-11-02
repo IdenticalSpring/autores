@@ -1222,6 +1222,24 @@ async def collector_node(state: State) -> Command[Literal["__end__"]]:
     #     logger.warning(f"Could not calculate state size: {e}")
 
     # await send_health_check(state["document_id"], AIStatus.PROCESSING)
+    if not state.get("report_sections"):
+        # Plan 0 bước (hoặc pipeline không sinh log) ⇒ vẫn PHẢI set final_report,
+        # nếu không analyzer.py sẽ KeyError và trả mã 631.
+        logger.warning(
+            f"[{state['document_id'][:8]}] collector_node: không có report_sections "
+            "→ trả final_report tối thiểu"
+        )
+        return {
+            "final_report": (
+                "# Data analysis report\n\n"
+                "Không có bước phân tích nào được thực thi. "
+                "Vui lòng kiểm tra dữ liệu và tool_configs."
+            ),
+            "detailed_report": [],
+            "generated_files": state.get("generated_files") or {},
+            "input_tokens": state["input_tokens"],
+            "output_tokens": state["output_tokens"],
+        }
     final_report = "# Data analysis report\n\n"
     detailed_report: list[str] = []
     for section_count, (section, ai_section) in enumerate(zip(state["report_sections"], state["detailed_report_sections"])):

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import types
 import typing
 from typing import List, Union
 import httpx
@@ -26,8 +27,16 @@ def _parse_retry_delay(message: str, default: int = 5, cap: int = 60) -> int:
     Gemini free tier trả 429 kèm gợi ý thời gian chờ. Trước đây 429 bị coi là
     "unrecoverable" nên job fail ngay (xem error_audit E1). Nay ta chờ đúng
     khoảng thời gian đó rồi thử lại.
+
+    Trả **-1** khi quota bị chặn theo NGÀY, dạng ``retry in 23h54m42s``.
+    Retry trong trường hợp này là vô nghĩa: job sẽ treo tới hết timeout nội bộ
+    (search_papers 300s / ai_in_doc 240s / chuyen_de_2 1800s) khiến BE chỉ thấy
+    "timeout" mơ hồ thay vì lỗi 429 thật (incident 2026-11-01).
     """
-    match = re.search(r"retry in ([\d.]+)\s*s", message or "", flags=re.IGNORECASE)
+    text = message or ""
+    if re.search(r"retry in [\d.]+\s*h", text, flags=re.IGNORECASE):
+        return -1
+    match = re.search(r"retry in ([\d.]+)\s*s", text, flags=re.IGNORECASE)
     if not match:
         return default
     return max(1, min(int(float(match.group(1))) + 1, cap))
@@ -37,9 +46,11 @@ logging.getLogger("openai").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
-# Các model trả structured output RỖNG với finish_reason=STOP (vd gemini-3.5-flash-lite):
-# không hỗ trợ response_schema/function-calling ⇒ từ lần sau gọi thẳng plain-JSON.
-_STRUCTURED_UNSUPPORTED_MODELS: set[str] = set()
+# Các model KHÔNG dùng được `with_structured_output` ⇒ đi thẳng plain-JSON.
+#  - Gemini 3.5-flash-lite: trả rỗng với finish_reason=STOP
+#  - DeepSeek: json_schema → 400 "response_format unavailable";
+#              function_calling → 400 "Thinking mode does not support this tool_choice"
+_STRUCTURED_UNSUPPORTED_MODELS: set[str] = {"deepseek-flash", "deepseek-v4-pro"}
 
 
 def _model_name(llm) -> str:
@@ -70,7 +81,17 @@ MAX_OUTPUT_TOKENS_MODEL_CONFIG = {
     "gpt-5-nano": 10000,
     "gpt-5": 10000,
     "localhost": 10000,
+    # DeepSeek V4: context 1M, output tối đa 384K (ta cap thực dụng 64K).
+    "deepseek-flash": 65536,
+    "deepseek-v4-pro": 65536,
+    # Legacy (docs: ngừng 2026-07-24) - giữ để không vỡ cấu hình cũ.
+    "deepseek-chat": 8000,
+    "deepseek-reasoner": 8000,
 }
+
+# Trần output thực dụng cho DeepSeek (API cho tới 384K; 64K cân bằng chi phí).
+DEEPSEEK_MAX_OUTPUT_TOKENS = 65536
+DEEPSEEK_BASE_URL_DEFAULT = "https://api.deepseek.com/v1"
 
 # Pricing dictionary (prices per 1M tokens)
 MODEL_PRICING = {
@@ -83,6 +104,13 @@ MODEL_PRICING = {
     "gpt-4.1-nano": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
     "gpt-4.1-2025-04-14": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
     "localhost": {"input": 0.0, "cached_input": 0.0, "output": 0.0},
+    # DeepSeek V4 - giá PEAK (USD / 1M tokens) theo bảng giá chính thức.
+    # Chỉ dùng để quy đổi token trong calculate_token_scaling.
+    "deepseek-flash": {"input": 0.30, "cached_input": 0.006, "output": 1.20},
+    "deepseek-v4-pro": {"input": 1.32, "cached_input": 0.044, "output": 3.96},
+    # Legacy ids - giữ để tương thích cấu hình cũ.
+    "deepseek-chat": {"input": 0.30, "cached_input": 0.006, "output": 1.20},
+    "deepseek-reasoner": {"input": 0.30, "cached_input": 0.006, "output": 1.20},
 }
 
 
@@ -153,6 +181,25 @@ def get_llm(
                 temperature=temperature,
                 top_p=0.9
             )
+    elif model_id.startswith("deepseek"):
+        # DeepSeek API tương thích OpenAI; key lấy từ Redis AI_KEY:{model_id}.
+        deepseek_kwargs: dict = {}
+        # Legacy "reasoner" từ chối temperature/top_p.
+        if "reasoner" not in model_id:
+            deepseek_kwargs = {"temperature": temperature, "top_p": 0.9}
+        # Thinking mode mặc định BẬT (effort=high) ⇒ chậm, tốn token, và chặn
+        # tool_choice. Tắt mặc định; có thể bật lại qua env DEEPSEEK_THINKING=enabled.
+        # Docs: với OpenAI SDK phải truyền trong `extra_body`.
+        thinking_mode = (getattr(settings, "DEEPSEEK_THINKING", "") or "disabled").strip().lower()
+        if thinking_mode != "enabled":
+            deepseek_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        llm = ChatOpenAI(
+            model=model_id,
+            api_key=llm_key,
+            base_url=getattr(settings, "DEEPSEEK_BASE_URL", "") or DEEPSEEK_BASE_URL_DEFAULT,
+            max_tokens=min(max_output_tokens, DEEPSEEK_MAX_OUTPUT_TOKENS),
+            **deepseek_kwargs,
+        )
     elif model_id == "localhost" or "oss" in model_id or model_id.startswith("groq") or model_id.startswith("local"):
         llm = ChatOpenAI(
             model=model_id if model_id != "localhost" else "localhost",
@@ -203,7 +250,14 @@ def _strip_code_fence(text: str) -> str:
 
 
 def _load_json_lenient(text: str):
-    """Cố lấy dict JSON từ output của model (kể cả có code fence, literal newlines hoặc bị cắt cụt)."""
+    """Cố lấy JSON từ output của model (dict **hoặc** list; kể cả có code fence, bị cắt cụt).
+
+    Trả về:
+    - `dict` khi model trả object,
+    - `list` khi model trả mảng (mảng object → lấy phần tử đầu như trước,
+      mảng scalar → trả nguyên mảng để `_parse_structured_text` tự bọc vào schema
+      1-field, vd `ReorderOutline` yêu cầu `[1,4,2,3]`).
+    """
     if not text or not isinstance(text, str):
         return None
     cleaned = _strip_code_fence(text)
@@ -239,6 +293,9 @@ def _load_json_lenient(text: str):
                     return parsed
                 if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
                     return parsed[0]
+                if isinstance(parsed, list):
+                    # Mảng scalar (vd `[1, 4, 2, 3]`) — giữ nguyên, xử lý ở tầng schema.
+                    return parsed
             except Exception:
                 continue
 
@@ -258,6 +315,103 @@ def _load_json_lenient(text: str):
                     pass
                 cut = body.rfind(",", 0, cut)
     return None
+
+
+def _unwrap_annotation(annotation):
+    """Trả `(annotation, origin, args)` sau khi bỏ `Optional[...]` / `X | None`.
+
+    `list[int] | None` (PEP 604) và `Optional[list[int]]` cho `get_origin` khác nhau
+    (`types.UnionType` vs `typing.Union`) — phải xử lý cả hai, nếu không `list[int]`
+    bị coi là "không phải list" và bỏ qua mọi bước ép kiểu.
+    """
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Union or origin is types.UnionType:
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            annotation = non_none[0]
+            origin = typing.get_origin(annotation)
+            args = typing.get_args(annotation)
+    return annotation, origin, args
+
+
+def _to_number(value, target: type):
+    """Ép `"12"` / `12.0` → `12`; trả None nếu không chuyển được (để self-heal xử lý)."""
+    if isinstance(value, bool):
+        return None
+    if target is int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value) if value.is_integer() else None
+        if isinstance(value, str):
+            text = value.strip()
+            if re.fullmatch(r"[+-]?\d+", text):
+                return int(text)
+            if re.fullmatch(r"[+-]?\d+\.0+", text):
+                return int(float(text))
+        return None
+    if target is float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _salvage_list(seq, elem_type):
+    """Giữ lại các phần tử còn đúng kiểu thay vì xoá sạch list.
+
+    Trước đây self-heal gán `data[field] = []` cho MỌI lỗi list, nên model trả
+    `{"reorder_outline": ["2", "xin chào"]}` ⇒ mất toàn bộ thứ tự ⇒ outline
+    không được sắp xếp (F9, incident 2026-11-01). Trả None nếu `seq` không phải list.
+    """
+    if not isinstance(seq, list):
+        return None
+    if elem_type is int:
+        kept = [x for x in seq if isinstance(x, int) and not isinstance(x, bool)]
+    elif elem_type is float:
+        kept = [float(x) for x in seq if isinstance(x, (int, float)) and not isinstance(x, bool)]
+    elif elem_type is str:
+        kept = [x for x in seq if isinstance(x, str)]
+    elif elem_type is dict or isinstance(elem_type, type) and issubclass(elem_type, BaseModel):
+        kept = [x for x in seq if isinstance(x, dict)]
+    else:
+        return None
+    if len(kept) != len(seq):
+        logger.warning(
+            f"[structured] Bỏ {len(seq) - len(kept)}/{len(seq)} phần tử sai kiểu thay vì xoá cả list"
+        )
+    return kept
+
+
+def _wrap_scalar_list(data, structure):
+    """Bọc mảng scalar vào object nếu schema có **đúng 1** field dạng list.
+
+    Vì sao cần: prompt `REORDER_OUTLINE` yêu cầu model trả `[1, 4, 2, 3]` nhưng
+    schema `ReorderOutline` là object `{"reorder_outline": [...]}`. Trước đây
+    `_load_json_lenient` chỉ nhận dict ⇒ parse trả None ⇒ outline mất thứ tự.
+    """
+    if not isinstance(data, list):
+        return data
+    if data and all(isinstance(item, dict) for item in data):
+        return data
+    list_fields = []
+    for name, field in getattr(structure, "model_fields", {}).items():
+        _, origin, _ = _unwrap_annotation(field.annotation)
+        if origin is list:
+            list_fields.append(name)
+    if len(list_fields) != 1:
+        logger.warning(
+            f"[structured] {structure.__name__}: model trả mảng trần nhưng schema có "
+            f"{len(list_fields)} field list {list_fields} → không tự bọc được"
+        )
+        return data
+    logger.info(f"[structured] {structure.__name__}: bọc mảng trần vào field '{list_fields[0]}'")
+    return {list_fields[0]: data}
 
 
 def _unwrap_root_dict(data, structure):
@@ -320,14 +474,7 @@ def _coerce_scalar_fields(data: dict, structure) -> list[str]:
         if name not in data:
             continue
         value = data[name]
-        annotation = field.annotation
-        origin = getattr(annotation, "__origin__", None)
-        args = getattr(annotation, "__args__", ())
-        if origin is typing.Union:
-            non_none = [a for a in args if a is not type(None)]
-            if len(non_none) == 1:
-                annotation = non_none[0]
-                origin = getattr(annotation, "__origin__", None)
+        annotation, origin, args = _unwrap_annotation(field.annotation)
 
         # Xử lý khi model trả `null` (None) cho field không hỗ trợ None
         if value is None:
@@ -355,7 +502,44 @@ def _coerce_scalar_fields(data: dict, structure) -> list[str]:
             elif isinstance(value, dict):
                 data[name] = "\n".join(f"- {k}: {v}" for k, v in value.items())
                 coerced.append(name)
+        elif annotation is int:
+            converted = _to_number(value, int)
+            if converted is not None and not isinstance(value, int):
+                data[name] = converted
+                coerced.append(name)
+        elif annotation is float:
+            converted = _to_number(value, float)
+            if converted is not None and not isinstance(value, float):
+                data[name] = converted
+                coerced.append(name)
         elif origin is list:
+            # Chỉ ép kiểu cho list[str] và list[int]/list[float].
+            # Với list[BaseModel] (vd SimplifiedPlan.steps) hoặc list[dict] phải giữ nguyên
+            # — nếu không sẽ biến [{"tool": "x"}] thành ["tool: x"] và làm hỏng cả plan
+            # (root cause thật của analyzer lỗi 631 ngày 2026-11-01).
+            elem_types = [a for a in args if a is not type(None)]
+            elem_type = elem_types[0] if elem_types else None
+            if elem_type in (int, float):
+                # `[1, "2", 3.0]` → `[1, 2, 3]` (DeepSeek hay trả số dạng string).
+                # Phần tử không chuyển được giữ nguyên để self-heal lọc, KHÔNG xoá list.
+                if not isinstance(value, list):
+                    continue
+                new_list = []
+                has_changed = False
+                for item in value:
+                    converted = _to_number(item, elem_type)
+                    if converted is None:
+                        new_list.append(item)
+                        continue
+                    if not isinstance(item, elem_type) or isinstance(item, bool):
+                        has_changed = True
+                    new_list.append(converted)
+                if has_changed:
+                    data[name] = new_list
+                    coerced.append(name)
+                continue
+            if elem_type is not str:
+                continue
             if isinstance(value, str):
                 data[name] = [value]
                 coerced.append(name)
@@ -380,6 +564,24 @@ def _coerce_scalar_fields(data: dict, structure) -> list[str]:
     return coerced
 
 
+def _warn_if_data_dropped(raw: dict, result, structure) -> None:
+    """Cảnh báo khi JSON gốc có dữ liệu list nhưng parse ra rỗng (dữ liệu bị mất).
+
+    Trước đây lỗi này diễn ra âm thầm: `SimplifiedPlan` có 2 bước trong JSON
+    nhưng parse ra `steps=[]` ⇒ analyzer chạy 0 bước ⇒ mất `final_report` (lỗi 631).
+    """
+    fields = getattr(structure, "model_fields", {}) or {}
+    for name in fields:
+        parsed_val = getattr(result, name, None)
+        raw_val = raw.get(name) if isinstance(raw, dict) else None
+        if isinstance(parsed_val, list) and not parsed_val and raw_val:
+            logger.error(
+                f"[structured] MẤT DỮ LIỆU: {structure.__name__}.{name} có dữ liệu trong raw "
+                f"(len={len(raw_val) if hasattr(raw_val, '__len__') else '?'}) nhưng parse ra rỗng "
+                f"— kiểm tra schema/self-heal"
+            )
+
+
 def _parse_structured_text(text: str, structure):
     """Parse text thành `structure`.
 
@@ -394,7 +596,14 @@ def _parse_structured_text(text: str, structure):
     data = _load_json_lenient(text)
     if data is None:
         return None
+    data = _wrap_scalar_list(data, structure)
     data = _unwrap_root_dict(data, structure)
+    if not isinstance(data, dict):
+        logger.warning(
+            f"[structured] {structure.__name__}: JSON không phải object/mảng bọc được "
+            f"→ không parse (type={type(data).__name__})"
+        )
+        return None
     missing = _fill_missing_fields(data, structure)
     coerced = _coerce_scalar_fields(data, structure)
     try:
@@ -408,24 +617,54 @@ def _parse_structured_text(text: str, structure):
             try:
                 for err in errors_func():
                     loc = err.get("loc", ())
-                    if loc:
-                        field_name = str(loc[0])
-                        if field_name in structure.model_fields:
-                            f = structure.model_fields[field_name]
-                            f_annot = f.annotation
-                            f_orig = getattr(f_annot, "__origin__", None)
-                            if f_annot is str:
-                                data[field_name] = ""
-                            elif f_orig is list:
-                                data[field_name] = []
-                            elif f_annot is int:
-                                data[field_name] = 0
-                            elif f_annot is bool:
-                                data[field_name] = False
-                            else:
-                                data[field_name] = None
+                    if not loc:
+                        continue
+                    field_name = str(loc[0])
+                    if field_name not in structure.model_fields:
+                        continue
+
+                    # Lỗi nằm BÊN TRONG phần tử list (vd ("steps", 0, "parameters"))
+                    # ⇒ chỉ sửa phần tử đó, TUYỆT ĐỐI không gán data["steps"] = []
+                    # (trước đây xoá cả list ⇒ plan còn 0 bước ⇒ analyzer mất final_report).
+                    # Với list scalar (vd list[int] của ReorderOutline) thì phần tử không
+                    # phải dict ⇒ KHÔNG continue, rơi xuống nhánh salvage toàn field.
+                    if len(loc) > 1:
+                        idx = loc[1]
+                        seq = data.get(field_name)
+                        if (
+                            isinstance(seq, list)
+                            and isinstance(idx, int)
+                            and 0 <= idx < len(seq)
+                            and isinstance(seq[idx], dict)
+                            and len(loc) >= 3
+                            and isinstance(loc[2], str)
+                        ):
+                            seq[idx][loc[2]] = None
+                            logger.warning(
+                                f"[structured] self-heal phần tử "
+                                f"{field_name}[{idx}].{loc[2]} → None"
+                            )
+                            continue
+
+                    f = structure.model_fields[field_name]
+                    f_annot, f_orig, f_args = _unwrap_annotation(f.annotation)
+                    if f_annot is str:
+                        data[field_name] = ""
+                    elif f_orig is list:
+                        # Giữ các phần tử còn đúng kiểu; chỉ rơi về [] khi không cứu được
+                        # (trước đây luôn xoá sạch ⇒ mất dữ liệu model đã trả — F9/631).
+                        elem_types = [a for a in f_args if a is not type(None)]
+                        salvaged = _salvage_list(data.get(field_name), elem_types[0] if elem_types else None)
+                        data[field_name] = salvaged if salvaged is not None else []
+                    elif f_annot is int:
+                        data[field_name] = 0
+                    elif f_annot is bool:
+                        data[field_name] = False
+                    else:
+                        data[field_name] = None
                 result = structure.model_validate(data)
                 logger.info(f"[structured] {structure.__name__}: tự sửa field lỗi thành công")
+                _warn_if_data_dropped(data, result, structure)
                 return result
             except Exception as second_err:
                 logger.warning(f"[structured] Tự sửa field lỗi thất bại: {second_err}")
@@ -436,6 +675,7 @@ def _parse_structured_text(text: str, structure):
         )
     if coerced:
         logger.warning(f"[structured] {structure.__name__}: đã ép kiểu field {coerced}")
+    _warn_if_data_dropped(data, result, structure)
     return result
 
 
@@ -478,6 +718,11 @@ async def _plain_json_fallback(llm, messages, structure):
     raw_text = content if isinstance(content, str) else ""
     result = _parse_structured_text(raw_text, structure)
     input_tokens, output_tokens = _get_usage_tokens({"raw": response})
+    logger.info(
+        f"[plain-json] model={_model_name(llm)} schema={structure.__name__} "
+        f"raw_len={len(raw_text)} parsed={'ok' if result is not None else 'FAIL'} "
+        f"preview={raw_text[:120]!r}"
+    )
     return result, input_tokens, output_tokens, raw_text
 
 
@@ -499,16 +744,20 @@ async def get_answer_with_schema(
             0,
         )
     schema_name = getattr(structure, "__name__", str(structure))
+    model_name = _model_name(llm)
+    structured_llm = None
+    # Chỉ bind structured output khi model thực sự dùng được. DeepSeek nằm trong
+    # _STRUCTURED_UNSUPPORTED_MODELS ⇒ bind bị bỏ qua, nhánh bên dưới đi plain-JSON.
     try:
-        structured_llm = llm.with_structured_output(structure, include_raw=True)
+        if not _is_structured_unsupported(llm):
+            structured_llm = llm.with_structured_output(structure, include_raw=True)
     except Exception as bind_err:
         # Gemini bind lỗi ngay tại đây (vd "Unsupported tool type None") → log schema để khoanh vùng
         logger.error(
-            f"[{_id}] BIND_DEBUG schema={schema_name} err={bind_err} "
+            f"[{_id}] BIND_DEBUG model={model_name} schema={schema_name} err={bind_err} "
             f"json={json.dumps(structure.model_json_schema(), ensure_ascii=False)[:1200]}"
         )
         raise
-    model_name = _model_name(llm)
     
     # Prepare messages
     messages = []
@@ -627,7 +876,36 @@ async def get_answer_with_schema(
                 logger.info(f"[{_id}] {response}")
             except Exception:
                 pass
-            logger.info(f"[{_id}] {e}")
+            logger.info(f"[{_id}] model={model_name} err={e}")
+
+            # Provider chỉ hỗ trợ response_format={"type":"json_object"} (vd DeepSeek)
+            # sẽ trả 400 "This response_format type is unavailable now". Retry json_schema
+            # là vô ích ⇒ chuyển ngay plain-JSON, không đốt 3 vòng retry.
+            err_l = str(e).lower()
+            if "response_format" in err_l or "json_schema" in err_l:
+                logger.warning(
+                    f"[{_id}] {schema_name}: model '{model_name}' từ chối response_format "
+                    f"→ fallback plain-JSON"
+                )
+                fb_result, fb_in, fb_out, fb_text = await _plain_json_fallback(llm, messages, structure)
+                input_tokens += fb_in
+                output_tokens += fb_out
+                if fb_result is not None:
+                    return None, True, fb_result, input_tokens, output_tokens
+                return (
+                    AIERROR(
+                        status_code=400,
+                        message=(
+                            f"response_format unsupported for model '{model_name}' "
+                            f"and plain-JSON fallback failed (raw_len={len(fb_text)})"
+                        ),
+                    ),
+                    False,
+                    "",
+                    input_tokens,
+                    output_tokens,
+                )
+
             # Debug: log schema đang bind để bắt lỗi "Unsupported tool type None" của Gemini
             if "Unsupported tool type" in str(e):
                 try:
@@ -640,6 +918,13 @@ async def get_answer_with_schema(
             error, status_code = handle_llm_exception(e)
             if status_code == 429:
                 delay = _parse_retry_delay(getattr(error, "message", ""))
+                if delay < 0:
+                    logger.error(
+                        f"[{_id}] QUOTA_EXHAUSTED {schema_name} — quota theo ngày đã cạn, "
+                        f"abort (không retry). model={_model_name(llm)} "
+                        f"msg={getattr(error, 'message', '')[:200]}"
+                    )
+                    return error, False, error.message, input_tokens, output_tokens
                 logger.warning(
                     f"[{_id}] {schema_name} rate limit 429 — chờ {delay}s rồi thử lại "
                     f"(attempt {attempt + 1}/3)"
@@ -769,6 +1054,12 @@ async def get_answer(
             error, status_code = handle_llm_exception(e)
             if status_code == 429:
                 delay = _parse_retry_delay(getattr(error, "message", ""))
+                if delay < 0:
+                    logger.error(
+                        f"[{_id}] QUOTA_EXHAUSTED — quota theo ngày đã cạn, abort (không retry). "
+                        f"model={_model_name(llm)} msg={getattr(error, 'message', '')[:200]}"
+                    )
+                    return error, False, error.message, 0, 0
                 logger.warning(f"[{_id}] Rate limit 429 — chờ {delay}s rồi thử lại (attempt {attempt + 1}/3)")
                 await asyncio.sleep(delay)
                 continue

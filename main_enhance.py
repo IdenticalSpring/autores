@@ -12,7 +12,7 @@ async def main():
     await init_singleton()
     await EnhancementListener(
         [topics.ENHANCEMENT_REQUEST],
-        "chatbot_09_06_2025"
+        "enhancement_09_06_2025"
     )
 
 

@@ -137,60 +137,30 @@ class AIInDoc:
                 self.vector_store = None
         system_prompt = "You are an expert academic writing assistant. Your task is to help improve and modify report content based on the provided context. Be thorough and integrate information effectively."
         common_instructions = "Maintain the original core message and tone of the paragraph unless the goal implies otherwise (e.g., making it more impactful for 'better'). Use the same references format"
-        if paragraph_context:
-            paragraph_context_md = markdownify_keep_images(paragraph_context)
-            if action in ["longer", "better", "suggestions"]:
-                search_queries_prompt = f"""
-                Based on the user's paragraphs, the intended action, the stated research gap, and the proposed method,
-                generate exactly 3 concise and distinct search queries (each ideally 3-7 keywords/phrases).
-                Each query should aim to find relevant but potentially different facets of information (e.g., background theory,
-                comparable methods, supporting data, limitations of prior art) from the reference papers.
-                If you cannot generate distinct queries, you can provide fewer, but strive for diversity.
-                User's Paragraphs:
-                {paragraphs}
-                Intended Action on the original paragraphs: To make it '{action}'.
-                Research Gap Being Addressed: {proposal["research_gap"]}
-                Web search result on Research Gap: {proposal["web_search"]}
-                Generate 3 distinct search queries
-                """
-                retrieved_reference_snippets = await self._retrieve_relevant_snippets_from_references(
-                    paragraphs,
-                    search_queries_prompt
-                ) if self.vector_store else ""
-                if retrieved_reference_snippets:
-                    extra_snippets = f"Additionally, consider these relevant snippets from foundational Reference Papers\n{retrieved_reference_snippets}"
-                else:
-                    extra_snippets = ""
-                content = f"""Consider the following research context derived from the overall proposal:
-                    Research Gap Being Addressed:
-                    {proposal["research_gap"]}
-                    Also consider this up-to-date knowledge from a Web Search Report:
-                    {proposal["web_search"]}
-                    {extra_snippets}
-                    Context of the original paragraphs
-                    {paragraph_context_md}
-                    Original Paragraph to be modified
-                    {paragraphs}"""
-                
-            # Constructing the instruction based on action
-            
-                instruction_prefix = "Based on all the provided information (original paragraphs, overall research context, web search report, and any retrieved reference paper snippets)"
-                if action == "longer":
-                    instruction = f"{instruction_prefix}please make the original paragraph substantively longer. Use critical thinking, looking at another perspective to expand on its ideas, add relevant details, examples, or explanations. Integrate insights from the web search report, reference snippets, and overall research proposal context to enrich the content. {common_instructions}"
-                elif action == "better":
-                    instruction = f"{instruction_prefix}please improve the original paragraph. Use critical thinking, looking at another perspective to enhance its clarity, flow, engagement, argumentation, and impact. Use insights from the web search report, reference snippets, and overall research proposal context to strengthen it. {common_instructions}"
-                elif action == "suggestions":
-                    instruction = f"{instruction_prefix}please provide exactly 3 actionable and specific suggestions to make the original paragraph better. Suggestions should consider how to better align the paragraph with the research gap, proposed method, and findings from the web search report and reference papers. {common_instructions}"
-                content += "\nTask:\n" + instruction
-            elif action == "shorter":
-                content = f"""Based on the original paragraphs, please make the original paragraphs shorter and more concise. 
-                Retain the most crucial information and core message. Aim for clarity. 
-                {common_instructions}
-                Context of the original paragraphs
-                {paragraph_context_md}
-                Original Paragraph to be modified
-                {paragraphs}"""
-        else:
+        
+        action_clean = str(action or "").lower().strip()
+        action_map = {
+            "expand": "longer",
+            "longer": "longer",
+            "shorten": "shorter",
+            "shorter": "shorter",
+            "rewrite": "better",
+            "better": "better",
+            "fix_grammar": "fix_grammar",
+            "make_academic": "make_academic",
+            "suggestions": "suggestions",
+        }
+        internal_action = action_map.get(action_clean)
+        if not internal_action:
+            raise ValueError(f"Invalid action: '{action}'. Expected one of {list(action_map.keys())}")
+
+        proposal = proposal or {}
+        research_gap = proposal.get("research_gap", "")
+        web_search = proposal.get("web_search", "")
+        paragraphs = paragraphs or ""
+        paragraph_context_md = markdownify_keep_images(paragraph_context) if paragraph_context else ""
+
+        if internal_action in ["longer", "better", "fix_grammar", "make_academic", "suggestions"]:
             search_queries_prompt = f"""
             Based on the user's paragraphs, the intended action, the stated research gap, and the proposed method,
             generate exactly 3 concise and distinct search queries (each ideally 3-7 keywords/phrases).
@@ -198,25 +168,63 @@ class AIInDoc:
             comparable methods, supporting data, limitations of prior art) from the reference papers.
             If you cannot generate distinct queries, you can provide fewer, but strive for diversity.
             User's Paragraphs:
-            {research_note["original_content"]}
-            Intended Action on the original paragraphs: To make it '{action}' by {research_note["revision_goal"]}
+            {paragraphs}
+            Intended Action on the original paragraphs: To make it '{internal_action}'.
+            Research Gap Being Addressed: {research_gap}
+            Web search result on Research Gap: {web_search}
             Generate 3 distinct search queries
             """
             retrieved_reference_snippets = await self._retrieve_relevant_snippets_from_references(
                 paragraphs,
                 search_queries_prompt
-            )
-            extra_snippets = f"Consider these relevant snippets from foundational Reference Papers:\n{retrieved_reference_snippets}"
-            extra_context = f"Consider these user's context:\n{user_content}\n" if user_content else ""
-            content = f"""{extra_context}{extra_snippets}
-                    Modify the original content
-                    {research_note["original_content"]}
-                    The revision goal
-                    {research_note["revision_goal"]}"""
+            ) if self.vector_store else ""
+            extra_snippets = f"Additionally, consider these relevant snippets from foundational Reference Papers\n{retrieved_reference_snippets}" if retrieved_reference_snippets else ""
             
-            content += f"Based on revision goal, please improve the original content. Use critical thinking, looking at another perspective to enhance its clarity, flow, engagement, argumentation, and impact and improve it. {common_instructions}"
+            content = f"""Consider the following research context derived from the overall proposal:
+                Research Gap Being Addressed:
+                {research_gap}
+                Also consider this up-to-date knowledge from a Web Search Report:
+                {web_search}
+                {extra_snippets}
+                Context of the original paragraphs
+                {paragraph_context_md}
+                Original Paragraph to be modified
+                {paragraphs}"""
+            
+            instruction_prefix = "Based on all the provided information (original paragraphs, overall research context, web search report, and any retrieved reference paper snippets) "
+            if internal_action == "longer":
+                instruction = f"{instruction_prefix}please make the original paragraph substantively longer. Use critical thinking, looking at another perspective to expand on its ideas, add relevant details, examples, or explanations. Integrate insights from the web search report, reference snippets, and overall research proposal context to enrich the content. {common_instructions}"
+            elif internal_action == "fix_grammar":
+                instruction = f"{instruction_prefix}please carefully fix all grammatical errors, typos, punctuation, sentence structures, and awkward phrasing in the original paragraph while preserving its core meaning and academic tone. {common_instructions}"
+            elif internal_action == "make_academic":
+                instruction = f"{instruction_prefix}please rewrite the original paragraph using formal, precise academic vocabulary, scholarly phrasing, and an authoritative tone suitable for high-impact journals. {common_instructions}"
+            elif internal_action == "better":
+                instruction = f"{instruction_prefix}please improve the original paragraph. Use critical thinking, looking at another perspective to enhance its clarity, flow, engagement, argumentation, and impact. Use insights from the web search report, reference snippets, and overall research proposal context to strengthen it. {common_instructions}"
+            elif internal_action == "suggestions":
+                instruction = f"{instruction_prefix}please provide exactly 3 actionable and specific suggestions to make the original paragraph better. Suggestions should consider how to better align the paragraph with the research gap, proposed method, and findings from the web search report and reference papers. {common_instructions}"
+            content += "\nTask:\n" + instruction
+        elif internal_action == "shorter":
+            content = f"""Based on the original paragraphs, please make the original paragraphs shorter and more concise. 
+            Retain the most crucial information and core message. Aim for clarity. 
+            {common_instructions}
+            Context of the original paragraphs
+            {paragraph_context_md}
+            Original Paragraph to be modified
+            {paragraphs}"""
+        else:
+            research_note = research_note or {}
+            orig_content = research_note.get("original_content", paragraphs)
+            rev_goal = research_note.get("revision_goal", internal_action)
+            extra_context = f"Consider these user's context:\n{user_content}\n" if user_content else ""
+            content = f"""{extra_context}
+                Modify the original content
+                {orig_content}
+                The revision goal
+                {rev_goal}
+                Based on revision goal, please improve the original content. {common_instructions}"""
+
         content += f"\nGenerate response in {self.language}"
-        if action in ["longer", "better", "shorter"]:
+        if internal_action in ["longer", "better", "shorter", "fix_grammar", "make_academic"]:
             error, success, result, input_tokens, output_tokens = await get_answer_with_schema(
                 self.id,
                 self.llm,
@@ -227,7 +235,7 @@ class AIInDoc:
             if not success:
                 raise error
             response = [result.new_paragraphs]
-        elif action == "suggestions":
+        elif internal_action == "suggestions":
             error, success, result, input_tokens, output_tokens = await get_answer_with_schema(
                 self.id,
                 self.llm,

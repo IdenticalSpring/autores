@@ -33,7 +33,7 @@ class ModelCreateRequest(BaseModel):
     model_id: str = Field(..., description="Tên model (vd: gemini-3.8-flash)")
     key_type: str = Field(
         "gemini",
-        description="Loại key: 'gemini', 'openai', 'groq', 'custom', 'none'"
+        description="Loại key: 'gemini', 'deepseek', 'openai', 'groq', 'custom', 'none'"
     )
     custom_key: Optional[str] = Field("", description="API key tùy chỉnh")
 
@@ -66,8 +66,20 @@ async def get_system_keys(_: str = Depends(get_current_admin)):
         "status": "success",
         "has_gemini": has_gemini,
         "has_openai": has_openai,
+        "has_deepseek": bool(await model_service.get_shared_key("deepseek")),
         "has_groq": bool(settings.GROQ_API_KEY),
         "has_serp": bool(settings.SERP_KEY),
+    }
+
+
+@app.post("/api/system/sync-env")
+async def sync_system_env(_: str = Depends(get_current_admin)):
+    """Sync API keys from .env into Redis for standard models."""
+    count = await model_service.sync_from_env()
+    return {
+        "status": "success",
+        "message": f"Đã đồng bộ {count} model từ file .env vào Redis thành công!",
+        "updated_count": count
     }
 
 

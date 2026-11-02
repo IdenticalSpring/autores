@@ -528,6 +528,23 @@ class VectorDBProcessor():
         """
         total_input_tokens = 0
         total_output_tokens = 0
+        # Chuẩn hoá input: BE có thể gửi thiếu `source`/`ref_id` (admin chỉ cần url/title),
+        # trước đây truy cập trực tiếp ⇒ KeyError 618/621 (smoke 2026-11-01).
+        document = dict(document)
+        document.setdefault("source", "USER")
+        document.setdefault("url", "")
+        document.setdefault(
+            "title", str(document.get("url", "")).split("/")[-1] or "Untitled"
+        )
+        document.setdefault("authors", "Author")
+        document.setdefault("year", "Unknown")
+        document.setdefault("journal", "Unknown")
+        document.setdefault("publisher", "Unknown")
+        document.setdefault(
+            "ref_id",
+            document.get("document_id") or document.get("url") or document["title"],
+        )
+        document.setdefault("document_id", document["ref_id"])
         if document["source"] == "ADMIN":
             db = mongo_client["admin"]
             collection_docs = db["processed_docs"]

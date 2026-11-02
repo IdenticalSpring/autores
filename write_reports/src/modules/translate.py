@@ -54,7 +54,7 @@ class Translator:
         outline = user_report_caches["processedOutline"]["outline"]
         user_report_cache: list[str] = []
         for section in outline:
-            user_report_cache.append(f"<h1>{section["heading"]}</h1><p>{section["overview"]}</p>")
+            user_report_cache.append(f"<h1>{section.get('heading') or section.get('title') or ''}</h1><p>{section.get('overview', '')}</p>")
             section_text = ""
             # Only process subsections if they exist (not None for section-only content)
             if section.get("subheadings") is not None:

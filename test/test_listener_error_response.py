@@ -65,6 +65,5 @@ def test_wrong_event_type_echoes_identifiers():
         source = LISTENERS[name].read_text(encoding="utf-8")
         idx = source.index("Wrong event_type")
         window = source[idx : idx + 700]
-        assert 'for identifier in ("user_id", "document_id", "session_id", "conv_id")' in window, (
-            f"{name}: nhánh Wrong event_type phải echo identifier"
-        )
+        for identifier in ("user_id", "document_id", "session_id", "conv_id", "data_id"):
+            assert identifier in window, f"{name}: nhánh Wrong event_type phải echo {identifier}"
